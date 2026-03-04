@@ -81,7 +81,10 @@ app.get("/api/health", (req, res) => {
 const authRoutes = require("./routes/authRoutes");
 app.use("/api/auth", authRoutes);
 
-// Phase 4: app.use("/api/users", userRoutes);
+// Phase 4: User management routes
+const userRoutes = require("./routes/userRoutes");
+app.use("/api/users", userRoutes);
+
 // Phase 5: app.use("/api/inventory-items", inventoryRoutes);
 // Phase 6: app.use("/api/products", productRoutes);
 // Phase 7: app.use("/api/measurement-charts", measurementRoutes);
