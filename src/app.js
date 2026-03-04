@@ -77,7 +77,10 @@ app.get("/api/health", (req, res) => {
 // API ROUTES (will be added in upcoming phases)
 // ============================================================================
 
-// Phase 3: app.use("/api/auth", authRoutes);
+// Phase 3: Auth routes
+const authRoutes = require("./routes/authRoutes");
+app.use("/api/auth", authRoutes);
+
 // Phase 4: app.use("/api/users", userRoutes);
 // Phase 5: app.use("/api/inventory-items", inventoryRoutes);
 // Phase 6: app.use("/api/products", productRoutes);
