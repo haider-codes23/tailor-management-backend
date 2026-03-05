@@ -85,7 +85,9 @@ app.use("/api/auth", authRoutes);
 const userRoutes = require("./routes/userRoutes");
 app.use("/api/users", userRoutes);
 
-// Phase 5: app.use("/api/inventory-items", inventoryRoutes);
+// Phase 5: Inventory management routes
+const inventoryRoutes = require("./routes/inventoryRoutes");
+app.use("/api/inventory", inventoryRoutes);
 // Phase 6: app.use("/api/products", productRoutes);
 // Phase 7: app.use("/api/measurement-charts", measurementRoutes);
 // Phase 8: app.use("/api/orders", orderRoutes);
