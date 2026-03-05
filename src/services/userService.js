@@ -8,143 +8,9 @@
  * and role permission templates.
  */
 
-const { Op } = require("sequelize");
+const { Op: Operators } = require("sequelize");
 const { User } = require("../models");
-
-// =========================================================================
-// Role Permission Templates
-// =========================================================================
-
-/**
- * Predefined permission sets for each role.
- * Matches frontend's ROLE_TEMPLATES in src/lib/permissions.js.
- *
- * When an admin selects a role during user creation, these permissions
- * are auto-populated as a starting point that can be customized.
- */
-const ROLE_TEMPLATES = {
-    ADMIN: {
-        label: "Administrator (Full Access)",
-        permissions: [
-            // User Management
-            "users.view", "users.create", "users.edit", "users.delete",
-            // Inventory
-            "inventory.view", "inventory.create", "inventory.edit",
-            "inventory.delete", "inventory.stock_in", "inventory.stock_out",
-            // Products & BOM
-            "products.view", "products.create", "products.edit",
-            "products.delete", "products.manage_bom",
-            // Measurements
-            "measurements.view", "measurements.edit",
-            // Orders
-            "orders.view", "orders.create", "orders.edit", "orders.delete",
-            "orders.manage_customer_forms", "orders.approve_customer_forms",
-            // Fabrication
-            "fabrication.view", "fabrication.create_bom", "fabrication.edit_bom",
-            // Production
-            "production.view", "production.manage", "production.assign_tasks",
-            "production.approve_packets", "production.assign_head",
-            "production.send_to_qa", "production.start_task", "production.complete_task",
-            // Procurement
-            "procurement.view", "procurement.manage",
-            // QA
-            "qa.view", "qa.approve", "qa.request_rework",
-            "qa.reject", "qa.upload_video", "qa.send_to_sales", "qa.view_sales_requests",
-            // Dyeing
-            "dyeing.view", "dyeing.accept", "dyeing.start",
-            "dyeing.complete", "dyeing.view_all",
-            // Dispatch
-            "dispatch.view", "dispatch.manage",
-            // Sales Approval
-            "sales.view_approval_queue", "sales.send_to_client",
-            "sales.mark_client_approved", "sales.request_alteration",
-            "sales.request_revideo", "sales.cancel_order", "sales.approve_payments",
-            // Reports
-            "reports.view",
-        ],
-    },
-
-    SALES: {
-        label: "Sales Representative",
-        permissions: [
-            "orders.view", "orders.create",
-            "orders.manage_customer_forms", "orders.approve_customer_forms",
-            "inventory.view", "products.view",
-            "sales.view_approval_queue", "sales.send_to_client",
-            "sales.mark_client_approved", "sales.request_alteration",
-            "sales.request_revideo", "sales.cancel_order", "sales.approve_payments",
-        ],
-    },
-
-    FABRICATION: {
-        label: "Fabrication (Bespoke)",
-        permissions: [
-            "fabrication.view", "fabrication.create_bom", "fabrication.edit_bom",
-            "inventory.view", "products.view",
-        ],
-    },
-
-    PRODUCTION_HEAD: {
-        label: "Production Head",
-        permissions: [
-            "orders.view", "production.view", "production.manage",
-            "production.assign_tasks", "production.approve_packets",
-            "production.send_to_qa", "inventory.view", "products.view",
-        ],
-    },
-
-    PACKET_CREATOR: {
-        label: "Packet Creator",
-        permissions: [
-            "orders.view", "production.view", "inventory.view", "products.view",
-        ],
-    },
-
-    DYEING: {
-        label: "Dyeing Department",
-        permissions: [
-            "dyeing.view", "dyeing.accept", "dyeing.start", "dyeing.complete",
-            "orders.view", "inventory.view", "products.view",
-        ],
-    },
-
-    WORKER: {
-        label: "Production Worker",
-        permissions: [
-            "production.view", "production.start_task", "production.complete_task",
-            "orders.view",
-        ],
-    },
-
-    QA: {
-        label: "Quality Assurance",
-        permissions: [
-            "orders.view", "qa.view", "qa.approve", "qa.request_rework",
-            "qa.reject", "qa.upload_video", "qa.send_to_sales",
-            "qa.view_sales_requests", "products.view",
-        ],
-    },
-
-    PURCHASER: {
-        label: "Purchaser",
-        permissions: [
-            "procurement.view", "procurement.manage",
-            "inventory.view", "inventory.stock_in", "orders.view",
-        ],
-    },
-
-    DISPATCH: {
-        label: "Dispatch Manager",
-        permissions: [
-            "orders.view", "dispatch.view", "dispatch.manage",
-        ],
-    },
-
-    CUSTOM: {
-        label: "Custom Role (Select Permissions Manually)",
-        permissions: [],
-    },
-};
+const { ROLE_TEMPLATES } = require("../constants/roleTemplate");
 
 // =========================================================================
 // Service Methods
@@ -171,9 +37,9 @@ async function listUsers({ role, is_active, search } = {}) {
 
     // Filter by search (name or email, case-insensitive)
     if (search) {
-        where[Op.or] = [
-            { name: { [Op.iLike]: `%${search}%` } },
-            { email: { [Op.iLike]: `%${search}%` } },
+        where[Operators.or] = [
+            { name: { [Operators.iLike]: `%${search}%` } },
+            { email: { [Operators.iLike]: `%${search}%` } },
         ];
     }
 
@@ -215,9 +81,12 @@ async function getUserById(userId) {
 /**
  * Create a new user.
  *
+ * Password hashing is handled automatically by the User model's
+ * beforeCreate hook — we just pass the plain `password` field.
+ *
  * @param {Object} data - { name, email, password, role, phone, permissions, is_active }
  * @returns {Promise<Object>} Created user (safe JSON)
- * @throws {Error} If email already exists or validation fails
+ * @throws {Error} If email already exists
  */
 async function createUser(data) {
     const { name, email, password, role, phone, permissions, is_active } = data;
@@ -226,19 +95,16 @@ async function createUser(data) {
     const existing = await User.findByEmail(email);
     if (existing) {
         const error = new Error("Email already exists");
-        error.status = 400;
+        error.status = 409;
         error.code = "EMAIL_EXISTS";
         throw error;
     }
 
-    // Hash the password
-    const password_hash = await User.hashPassword(password);
-
-    // Create user
+    // Create user — password hashing happens in model beforeCreate hook
     const user = await User.create({
         name,
         email: email.toLowerCase(),
-        password_hash,
+        password: password || `${role.toLowerCase()}${Date.now().toString().slice(-6)}`,
         role,
         phone: phone || null,
         permissions: permissions || [],
@@ -250,6 +116,9 @@ async function createUser(data) {
 
 /**
  * Update an existing user.
+ *
+ * If a new password is provided, the User model's beforeUpdate hook
+ * will automatically hash it into password_hash.
  *
  * @param {string} userId - UUID
  * @param {Object} updates - Partial user fields
@@ -271,20 +140,14 @@ async function updateUser(userId, updates) {
         const existing = await User.findByEmail(updates.email);
         if (existing) {
             const error = new Error("Email already exists");
-            error.status = 400;
+            error.status = 409;
             error.code = "EMAIL_EXISTS";
             throw error;
         }
         updates.email = updates.email.toLowerCase();
     }
 
-    // If password is being changed, hash it
-    if (updates.password) {
-        updates.password_hash = await User.hashPassword(updates.password);
-        delete updates.password; // Don't store plain password
-    }
-
-    // Apply updates
+    // Apply updates — password hashing happens in model beforeUpdate hook
     await user.update(updates);
 
     return user.toSafeJSON();
@@ -329,5 +192,4 @@ module.exports = {
     updateUser,
     deleteUser,
     getRoleTemplates,
-    ROLE_TEMPLATES,
 };

@@ -6,21 +6,7 @@
  */
 
 const Joi = require("joi");
-
-// Valid roles — matches frontend's USER_ROLES and the User model
-const VALID_ROLES = [
-    "ADMIN",
-    "SALES",
-    "FABRICATION",
-    "PRODUCTION_HEAD",
-    "PACKET_CREATOR",
-    "DYEING",
-    "WORKER",
-    "QA",
-    "PURCHASER",
-    "DISPATCH",
-    "CUSTOM",
-];
+const { VALID_ROLES } = require("../../constants/roles");
 
 // ===========================================================================
 // Schemas
@@ -43,9 +29,7 @@ const createUserSchema = Joi.object({
         "any.required": "Email is required",
         "string.empty": "Email is required",
     }),
-    password: Joi.string().min(6).max(128).required().messages({
-        "any.required": "Password is required",
-        "string.empty": "Password is required",
+    password: Joi.string().min(6).max(128).optional().messages({
         "string.min": "Password must be at least 6 characters",
     }),
     role: Joi.string()
@@ -67,7 +51,7 @@ const createUserSchema = Joi.object({
  * Schema for updating a user (PUT /api/users/:id)
  *
  * All fields are optional (partial update).
- * Password is optional here — only included when admin wants to reset it.
+ * Password is optional — only included when admin wants to reset it.
  */
 const updateUserSchema = Joi.object({
     name: Joi.string().trim().min(1).max(255).optional().messages({
@@ -107,5 +91,4 @@ module.exports = {
     createUserSchema,
     updateUserSchema,
     validate,
-    VALID_ROLES,
 };

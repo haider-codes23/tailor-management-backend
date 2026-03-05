@@ -2,31 +2,15 @@
  * User Model
  *
  * Sequelize model for the `users` table.
- * Handles password hashing, safe JSON serialization,
+ * Handles password hashing via hooks, safe JSON serialization,
  * and email-based lookups.
  */
 
 const { DataTypes } = require("sequelize");
 const bcrypt = require("bcryptjs");
+const { VALID_ROLES } = require("../constants/roles");
 
 const SALT_ROUNDS = 12;
-
-/**
- * Valid user roles — matches frontend's USER_ROLES constant
- */
-const USER_ROLES = [
-    "ADMIN",
-    "SALES",
-    "FABRICATION",
-    "PRODUCTION_HEAD",
-    "PACKET_CREATOR",
-    "DYEING",
-    "WORKER",
-    "QA",
-    "PURCHASER",
-    "DISPATCH",
-    "CUSTOM",
-];
 
 module.exports = (sequelize) => {
     const User = sequelize.define(
@@ -55,6 +39,17 @@ module.exports = (sequelize) => {
                     notEmpty: { msg: "Email is required" },
                 },
             },
+            // Virtual field — accepts plain password, never stored in DB.
+            // The beforeCreate/beforeUpdate hooks hash it into password_hash.
+            password: {
+                type: DataTypes.VIRTUAL,
+                validate: {
+                    len: {
+                        args: [6, 128],
+                        msg: "Password must be between 6 and 128 characters",
+                    },
+                },
+            },
             password_hash: {
                 type: DataTypes.STRING(255),
                 allowNull: false,
@@ -65,8 +60,8 @@ module.exports = (sequelize) => {
                 defaultValue: "CUSTOM",
                 validate: {
                     isIn: {
-                        args: [USER_ROLES],
-                        msg: `Role must be one of: ${USER_ROLES.join(", ")}`,
+                        args: [VALID_ROLES],
+                        msg: `Role must be one of: ${VALID_ROLES.join(", ")}`,
                     },
                 },
             },
@@ -101,6 +96,20 @@ module.exports = (sequelize) => {
     );
 
     // ===========================================================================
+    // Hooks — automatic password hashing
+    // ===========================================================================
+
+    /**
+     * Before creating a user, hash the virtual `password` field
+     * into `password_hash`. This keeps hashing logic out of services.
+     */
+       User.beforeValidate(async (user) => {
+        if (user.password) {
+            user.password_hash = await bcrypt.hash(user.password, SALT_ROUNDS);
+        }
+    });
+
+    // ===========================================================================
     // Instance Methods
     // ===========================================================================
 
@@ -115,13 +124,14 @@ module.exports = (sequelize) => {
 
     /**
      * Return user data safe for sending to the frontend.
-     * Excludes password_hash and refresh_token_hash.
+     * Excludes password_hash, refresh_token_hash, and the virtual password field.
      * @returns {Object}
      */
     User.prototype.toSafeJSON = function () {
         const values = this.toJSON();
         delete values.password_hash;
         delete values.refresh_token_hash;
+        delete values.password;
         return values;
     };
 
@@ -144,7 +154,9 @@ module.exports = (sequelize) => {
     };
 
     /**
-     * Hash a plain-text password
+     * Hash a plain-text password (standalone utility)
+     * Kept for backward compatibility with authService seeder usage.
+     * Prefer using the virtual `password` field + hooks for new code.
      * @param {string} plainPassword
      * @returns {Promise<string>}
      */
