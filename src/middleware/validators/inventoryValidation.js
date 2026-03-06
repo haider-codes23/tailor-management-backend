@@ -6,16 +6,10 @@
  */
 
 const Joi = require("joi");
+const { INVENTORY_CATEGORIES } = require("../../constants/inventory");
 
-// Valid inventory categories
-const VALID_CATEGORIES = [
-  "FABRIC",
-  "RAW_MATERIAL",
-  "MULTI_HEAD",
-  "ADDA_MATERIAL",
-  "READY_STOCK",
-  "READY_SAMPLE",
-];
+// Use shared constant
+const VALID_CATEGORIES = INVENTORY_CATEGORIES;
 
 // =========================================================================
 // Variant sub-schema (for READY_STOCK / READY_SAMPLE items)

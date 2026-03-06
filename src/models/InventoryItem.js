@@ -11,15 +11,7 @@
  */
 
 const { DataTypes } = require("sequelize");
-
-const INVENTORY_CATEGORIES = [
-  "FABRIC",
-  "RAW_MATERIAL",
-  "MULTI_HEAD",
-  "ADDA_MATERIAL",
-  "READY_STOCK",
-  "READY_SAMPLE",
-];
+const { INVENTORY_CATEGORIES } = require("../constants/inventory");
 
 module.exports = (sequelize) => {
   const InventoryItem = sequelize.define(

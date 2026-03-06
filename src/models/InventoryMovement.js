@@ -14,15 +14,7 @@
  */
 
 const { DataTypes } = require("sequelize");
-
-const MOVEMENT_TYPES = [
-  "STOCK_IN",
-  "STOCK_OUT",
-  "RESERVED",
-  "ADJUSTMENT",
-  "ISSUE_READY_STOCK_TO_ORDER",
-  "RETURN_READY_STOCK",
-];
+const { MOVEMENT_TYPES } = require("../constants/inventory");
 
 module.exports = (sequelize) => {
   const InventoryMovement = sequelize.define(
