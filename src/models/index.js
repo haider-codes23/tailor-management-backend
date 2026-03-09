@@ -3,26 +3,37 @@
  *
  * Initializes all Sequelize models and sets up associations.
  * Other modules should import models from here:
- *   const { User } = require('../models');
+ *   const { User, Product, Bom } = require('../models');
  */
 
 const sequelize = require("../config/database");
 
-// Initialize models
+// ── Phase 3: Auth ─────────────────────────────────────────────────────
 const User = require("./User")(sequelize);
+
+// ── Phase 5: Inventory ────────────────────────────────────────────────
 const InventoryItem = require("./InventoryItem")(sequelize);
 const InventoryItemVariant = require("./InventoryItemVariant")(sequelize);
 const InventoryMovement = require("./InventoryMovement")(sequelize);
 
-// Set up associations (will grow as more models are added)
-// e.g., User.hasMany(Order); Order.belongsTo(User);
+// ── Phase 6: Products, BOM & Measurement Charts ──────────────────────
+const Product = require("./Product")(sequelize);
+const Bom = require("./Bom")(sequelize);
+const BomItem = require("./BomItem")(sequelize);
+const ProductSizeChartRow = require("./ProductSizeChartRow")(sequelize);
+const ProductHeightChartRow = require("./ProductHeightChartRow")(sequelize);
 
 const db = {
-    sequelize,
-    User,
-    InventoryItem,
-    InventoryItemVariant,
-    InventoryMovement,
+  sequelize,
+  User,
+  InventoryItem,
+  InventoryItemVariant,
+  InventoryMovement,
+  Product,
+  Bom,
+  BomItem,
+  ProductSizeChartRow,
+  ProductHeightChartRow,
 };
 
 // ─── Set up associations ────────────────────────────────────────────────────
