@@ -235,10 +235,10 @@ module.exports = (sequelize) => {
     });
 
     // linked_product_id → Product (will be set up when Product model exists)
-    // InventoryItem.belongsTo(models.Product, {
-    //   foreignKey: "linked_product_id",
-    //   as: "linked_product",
-    // });
+    InventoryItem.belongsTo(models.Product, {
+      foreignKey: "linked_product_id",
+      as: "linked_product",
+    });
   };
 
   // ─── Constants ──────────────────────────────────────────────────────

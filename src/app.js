@@ -88,7 +88,15 @@ app.use("/api/users", userRoutes);
 // Phase 5: Inventory management routes
 const inventoryRoutes = require("./routes/inventoryRoutes");
 app.use("/api/inventory", inventoryRoutes);
-// Phase 6: app.use("/api/products", productRoutes);
+
+
+// Phase 6: Products, BOM & Measurement Charts
+const productRoutes = require("./routes/productRoutes");
+const bomRoutes = require("./routes/bomRoutes");
+const bomItemRoutes = require("./routes/bomItemRoutes");
+app.use("/api/products", productRoutes);
+app.use("/api/boms", bomRoutes);
+app.use("/api/bom-items", bomItemRoutes);
 // Phase 7: app.use("/api/measurement-charts", measurementRoutes);
 // Phase 8: app.use("/api/orders", orderRoutes);
 // ... etc
