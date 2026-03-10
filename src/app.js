@@ -97,6 +97,10 @@ const bomItemRoutes = require("./routes/bomItemRoutes");
 app.use("/api/products", productRoutes);
 app.use("/api/boms", bomRoutes);
 app.use("/api/bom-items", bomItemRoutes);
+
+// ── Phase 8: Orders
+const orderRoutes = require("./routes/orderRoutes");
+app.use("/api/orders", orderRoutes);
 // Phase 7: app.use("/api/measurement-charts", measurementRoutes);
 // Phase 8: app.use("/api/orders", orderRoutes);
 // ... etc
