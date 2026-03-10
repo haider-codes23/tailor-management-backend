@@ -3,7 +3,7 @@
  *
  * Initializes all Sequelize models and sets up associations.
  * Other modules should import models from here:
- *   const { User, Product, Bom } = require('../models');
+ *   const { User, Product, Order, OrderItem } = require('../models');
  */
 
 const sequelize = require("../config/database");
@@ -23,6 +23,12 @@ const BomItem = require("./BomItem")(sequelize);
 const ProductSizeChartRow = require("./ProductSizeChartRow")(sequelize);
 const ProductHeightChartRow = require("./ProductHeightChartRow")(sequelize);
 
+// ── Phase 8: Orders ──────────────────────────────────────────────────
+const Order = require("./Order")(sequelize);
+const OrderItem = require("./OrderItem")(sequelize);
+const OrderItemSection = require("./OrderItemSection")(sequelize);
+const OrderActivity = require("./OrderActivity")(sequelize);
+
 const db = {
   sequelize,
   User,
@@ -34,6 +40,10 @@ const db = {
   BomItem,
   ProductSizeChartRow,
   ProductHeightChartRow,
+  Order,
+  OrderItem,
+  OrderItemSection,
+  OrderActivity,
 };
 
 // ─── Set up associations ────────────────────────────────────────────────────
