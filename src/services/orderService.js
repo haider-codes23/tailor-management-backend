@@ -265,7 +265,7 @@ async function createOrder(data, user) {
         // Shopify (manual orders start as NOT_SYNCED)
         shopify_sync_status: SHOPIFY_SYNC_STATUS.NOT_SYNCED,
         // Misc
-        urgent: data.urgent || false,
+        urgent: (data.urgent && data.urgent !== "" && data.urgent !== "none") ? data.urgent : null,
         notes: data.notes || null,
         tags: data.tags || [],
       },
@@ -383,10 +383,21 @@ async function createOrder(data, user) {
       transaction: t,
     });
 
+    // 7. Run ready stock check (determines fulfillment path)
+    const forceProduction = data.force_production || data.forceProduction || false;
+    const readyStockService = require("./readyStockService");
+    const rsResult = await readyStockService.runReadyStockCheck(order.id, {
+      forceProduction,
+      user,
+      transaction: t,
+    });
+
     await t.commit();
 
-    // 7. Re-fetch the complete order with all includes
-    return getOrderById(order.id);
+    // 8. Re-fetch the complete order with all includes
+    const fullOrder = await getOrderById(order.id);
+    fullOrder.ready_stock_result = rsResult;
+    return fullOrder;
   } catch (err) {
     await t.rollback();
     throw err;
@@ -483,8 +494,15 @@ async function cancelOrder(orderId, user) {
     throw serviceError("Order not found", 404, "ORDER_NOT_FOUND");
   }
 
+  const previousStatus = order.status;
   const t = await sequelize.transaction();
   try {
+    // If this was a READY_STOCK order, return the issued stock
+    if (order.fulfillment_source === "READY_STOCK") {
+      const readyStockService = require("./readyStockService");
+      await readyStockService.returnReadyStock(order.id, user, t);
+    }
+
     // Update order status
     await order.update({ status: ORDER_STATUS.CANCELLED }, { transaction: t });
 
@@ -496,11 +514,17 @@ async function cancelOrder(orderId, user) {
     // Log
     await OrderActivity.log({
       orderId: order.id,
-      action: "Order cancelled",
+      action: order.fulfillment_source === "READY_STOCK"
+        ? "Order cancelled — ready stock returned to inventory"
+        : "Order cancelled",
       actionType: ACTIVITY_ACTION_TYPE.STATUS_CHANGE,
       userId: user.id,
       userName: user.name,
-      details: { previous_status: order.status, new_status: ORDER_STATUS.CANCELLED },
+      details: {
+        previous_status: previousStatus,
+        new_status: ORDER_STATUS.CANCELLED,
+        ready_stock_returned: order.fulfillment_source === "READY_STOCK",
+      },
       transaction: t,
     });
 

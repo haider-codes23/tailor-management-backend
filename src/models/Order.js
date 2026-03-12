@@ -201,9 +201,9 @@ module.exports = (sequelize) => {
 
       // ── Misc ────────────────────────────────────────────────────────
       urgent: {
-        type: DataTypes.BOOLEAN,
-        allowNull: false,
-        defaultValue: false,
+        type: DataTypes.STRING(20),
+        allowNull: true,
+        defaultValue: null,
       },
       notes: { type: DataTypes.TEXT, allowNull: true },
       order_form_link: { type: DataTypes.TEXT, allowNull: true },

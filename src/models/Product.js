@@ -66,6 +66,35 @@ module.exports = (sequelize) => {
         comment: 'Optional add-on pieces e.g. [{piece: "dupatta", price: 10000}]',
       },
 
+      // ── Pricing (computed from product_items + add_ons) ─────────────
+      subtotal: {
+        type: DataTypes.DECIMAL(12, 2),
+        allowNull: false,
+        defaultValue: 0,
+        get() {
+          const v = this.getDataValue("subtotal");
+          return v !== null ? parseFloat(v) : 0;
+        },
+      },
+      discount: {
+        type: DataTypes.DECIMAL(12, 2),
+        allowNull: false,
+        defaultValue: 0,
+        get() {
+          const v = this.getDataValue("discount");
+          return v !== null ? parseFloat(v) : 0;
+        },
+      },
+      total_price: {
+        type: DataTypes.DECIMAL(12, 2),
+        allowNull: false,
+        defaultValue: 0,
+        get() {
+          const v = this.getDataValue("total_price");
+          return v !== null ? parseFloat(v) : 0;
+        },
+      },
+
       // ── Shopify integration ─────────────────────────────────────────
       shopify_product_id: {
         type: DataTypes.STRING(100),
@@ -143,6 +172,18 @@ module.exports = (sequelize) => {
     const values = { ...this.get() };
     values.primary_image =
       values.images && values.images.length > 0 ? values.images[0] : null;
+    
+    // Frontend compatibility: MSW used "active", backend uses "is_active"
+    values.active = values.is_active;
+    // Ensure pricing fields are always present (matches MSW mock structure)
+    // If DB values are 0 but JSONB has prices, recompute on the fly as fallback
+    if (values.total_price === 0 && (values.product_items?.length || values.add_ons?.length)) {
+      const computed = this.getSubtotal();
+      if (computed > 0) {
+        values.subtotal = computed;
+        values.total_price = computed - (values.discount || 0);
+      }
+    }
     return values;
   };
 

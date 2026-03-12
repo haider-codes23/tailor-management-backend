@@ -105,14 +105,26 @@ async function createProduct(data) {
     );
   }
 
+  // Compute pricing from product_items + add_ons (matches MSW handler logic)
+  const productItems = data.product_items || [];
+  const addOns = data.add_ons || [];
+  const subtotal = [...productItems, ...addOns].reduce(
+    (sum, item) => sum + (parseFloat(item.price) || 0), 0
+  );
+  const discount = parseFloat(data.discount) || 0;
+  const totalPrice = subtotal - discount;
+
   const product = await Product.create({
     name: data.name,
     sku: data.sku,
     description: data.description || null,
     category: data.category || null,
-     images:  data?.images?.length ? data.images : data.image_url ? [data.image_url] : [],
-    product_items: data.product_items || [],
-    add_ons: data.add_ons || [],
+    images: data?.images?.length ? data.images : data.image_url ? [data.image_url] : [],
+    product_items: productItems,
+    add_ons: addOns,
+    subtotal,
+    discount,
+    total_price: totalPrice,
     shopify_product_id: data.shopify_product_id || null,
     shopify_variant_id: data.shopify_variant_id || null,
     is_active: data.is_active !== undefined ? data.is_active : true,
@@ -164,12 +176,25 @@ async function updateProduct(productId, data) {
     "shopify_product_id",
     "shopify_variant_id",
     "is_active",
+    "discount",
   ];
 
   for (const field of allowedFields) {
     if (data[field] !== undefined) {
       updateFields[field] = data[field];
     }
+  }
+
+  // Recompute pricing if product_items, add_ons, or discount changed
+  if (data.product_items !== undefined || data.add_ons !== undefined || data.discount !== undefined) {
+    const items = updateFields.product_items || product.product_items || [];
+    const addOns = updateFields.add_ons || product.add_ons || [];
+    const subtotal = [...items, ...addOns].reduce(
+      (sum, i) => sum + (parseFloat(i.price) || 0), 0
+    );
+    const disc = parseFloat(updateFields.discount ?? product.discount) || 0;
+    updateFields.subtotal = subtotal;
+    updateFields.total_price = subtotal - disc;
   }
 
   await product.update(updateFields);
