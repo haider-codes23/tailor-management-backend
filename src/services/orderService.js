@@ -425,13 +425,15 @@ async function updateOrder(orderId, data, user) {
     "consultant_name", "production_in_charge", "production_head_id",
     "currency", "total_amount", "discount", "shipping_cost", "tax",
     "payment_status", "payment_method",
-    "fwd_date", "production_shipping_date",
-    "urgent", "notes", "order_form_link", "tags",
+    "fwd_date", "production_shipping_date", "actual_shipping_date",
+    "urgent", "notes", "order_form_link", "tags", "modesty",
     // camelCase aliases from frontend
     "customerName", "customerEmail", "customerPhone",
-    "clientHeight", "consultantName", "productionInchargeName",
-    "productionShippingDate", "fwdDate", "totalAmount",
-    "shippingCost", "paymentMethod", "paymentStatus",
+    "clientHeight", "consultantName", "consultantId",
+    "productionInchargeName", "productionInchargeId",
+    "productionShippingDate", "actualShippingDate", "fwdDate",
+    "totalAmount", "shippingCost", "paymentMethod", "paymentStatus",
+    "orderFormLink", "address",
   ];
 
   // Map camelCase → snake_case
@@ -441,13 +443,18 @@ async function updateOrder(orderId, data, user) {
     customerPhone: "customer_phone",
     clientHeight: "client_height",
     consultantName: "consultant_name",
+    consultantId: "sales_owner_id",
     productionInchargeName: "production_in_charge",
+    productionInchargeId: "production_head_id",
     productionShippingDate: "production_shipping_date",
+    actualShippingDate: "actual_shipping_date",
     fwdDate: "fwd_date",
     totalAmount: "total_amount",
     shippingCost: "shipping_cost",
     paymentMethod: "payment_method",
     paymentStatus: "payment_status",
+    orderFormLink: "order_form_link",
+    address: "shipping_address",
   };
 
   const updates = {};
@@ -455,6 +462,14 @@ async function updateOrder(orderId, data, user) {
     if (editable.includes(key)) {
       const dbKey = camelToSnake[key] || key;
       updates[dbKey] = data[key];
+    }
+  }
+
+  // Sanitize UUID fields — empty strings → null (PostgreSQL rejects "" for UUID)
+  const uuidFields = ["sales_owner_id", "production_head_id"];
+  for (const field of uuidFields) {
+    if (field in updates && !updates[field]) {
+      updates[field] = null;
     }
   }
 

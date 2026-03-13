@@ -14,6 +14,7 @@
  *     for querying
  *   - Supports both STANDARD and CUSTOM size types
  *   - Custom BOM stored in JSONB for bespoke (CUSTOM) orders
+ *   - Customer form data stored directly on item (order_form, order_form_versions)
  *
  * Maps to the `order_items` table created in migration 09.
  */
@@ -130,22 +131,40 @@ module.exports = (sequelize) => {
         allowNull: false,
         defaultValue: false,
       },
+      order_form: {
+        type: DataTypes.JSONB,
+        allowNull: true,
+        defaultValue: null,
+        comment: "Current form version object",
+      },
+      order_form_versions: {
+        type: DataTypes.JSONB,
+        allowNull: false,
+        defaultValue: [],
+        comment: "Array of all form version objects",
+      },
+      garment_notes: {
+        type: DataTypes.JSONB,
+        allowNull: true,
+        defaultValue: null,
+        comment: "Per-garment notes: { shirt: {...}, bottom: {...}, dupatta: {...} }",
+      },
 
       // ── What's included ────────────────────────────────────────────
       included_items: {
         type: DataTypes.JSONB,
         allowNull: false,
         defaultValue: [],
-        comment: '[{piece: "shirt", price: 45000}]',
+        comment: "[{piece: 'shirt', price: 45000}]",
       },
       selected_add_ons: {
         type: DataTypes.JSONB,
         allowNull: false,
         defaultValue: [],
-        comment: '[{piece: "dupatta", price: 10000}]',
+        comment: "[{piece: 'dupatta', price: 10000}]",
       },
 
-      // ── Section-level status (denormalized for quick reads) ────────
+      // ── Section-level status tracking ──────────────────────────────
       section_statuses: {
         type: DataTypes.JSONB,
         allowNull: false,
@@ -153,7 +172,7 @@ module.exports = (sequelize) => {
         comment: "Per-section status: {shirt: {status, updatedAt}, dupatta: {...}}",
       },
 
-      // ── Custom BOM (for CUSTOM size type) ──────────────────────────
+      // ── Custom BOM (for CUSTOM size) ───────────────────────────────
       custom_bom: {
         type: DataTypes.JSONB,
         allowNull: true,
@@ -170,26 +189,19 @@ module.exports = (sequelize) => {
     }
   );
 
-  // ─── Instance helpers ─────────────────────────────────────────────
+  // ─── Helpers ──────────────────────────────────────────────────────
 
-  /**
-   * Get the line total (quantity × unit_price).
-   */
+  /** Computed line total */
   OrderItem.prototype.getLineTotal = function () {
-    return this.quantity * this.unit_price;
+    return this.quantity * (parseFloat(this.unit_price) || 0);
   };
 
-  /**
-   * Get all section pieces as an array of names.
-   */
+  /** Extract section piece names from included_items + selected_add_ons */
   OrderItem.prototype.getSectionNames = function () {
-    return Object.keys(this.section_statuses || {});
-  };
-
-  OrderItem.prototype.toJSON = function () {
-    const values = { ...this.get() };
-    values.line_total = this.getLineTotal();
-    return values;
+    const names = [];
+    (this.included_items || []).forEach((i) => names.push(i.piece));
+    (this.selected_add_ons || []).forEach((a) => names.push(a.piece));
+    return names;
   };
 
   // ─── Associations ─────────────────────────────────────────────────
@@ -220,11 +232,6 @@ module.exports = (sequelize) => {
       as: "activities",
     });
   };
-
-  // ─── Constants ────────────────────────────────────────────────────
-
-  OrderItem.STATUS = ORDER_ITEM_STATUS;
-  OrderItem.SIZE_TYPE = SIZE_TYPE;
 
   return OrderItem;
 };
