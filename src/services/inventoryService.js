@@ -19,6 +19,7 @@ const {
   InventoryItem,
   InventoryItemVariant,
   InventoryMovement,
+  Product,
 } = require("../models");
 
 // =========================================================================
@@ -147,15 +148,47 @@ async function createItem(data) {
     reorder_level, reorder_amount, base_price,
   } = data;
 
+  const VARIANT_CATEGORIES = ["READY_STOCK", "READY_SAMPLE"];
+  const resolvedHasVariants = !!has_variants || VARIANT_CATEGORIES.includes(category);
+
   // Check SKU uniqueness
   const existing = await InventoryItem.findOne({ where: { sku } });
   if (existing) {
     throw serviceError(`An item with SKU ${sku} already exists`, 400, "DUPLICATE_SKU");
   }
 
+  // Enforce linked_product_id for READY_STOCK / READY_SAMPLE
+  const LINKABLE_CATEGORIES = ["READY_STOCK", "READY_SAMPLE"];
+  if (LINKABLE_CATEGORIES.includes(category) && !linked_product_id) {
+    throw serviceError(
+      `linked_product_id is required for ${category} items. Each ready stock/sample item must be linked to a product.`,
+      400,
+      "LINKED_PRODUCT_REQUIRED"
+    );
+  }
+
+  // Validate that linked product actually exists
+  if (linked_product_id) {
+    const product = await Product.findByPk(linked_product_id);
+    if (!product) {
+      throw serviceError(
+        `Product with ID ${linked_product_id} not found. Cannot link inventory item to a non-existent product.`,
+        404,
+        "LINKED_PRODUCT_NOT_FOUND"
+      );
+    }
+    if (!product.is_active) {
+      throw serviceError(
+        `Product "${product.name}" is inactive. Cannot link inventory item to an inactive product.`,
+        400,
+        "LINKED_PRODUCT_INACTIVE"
+      );
+    }
+  }
+
   // Validate: READY_STOCK must have linked_product_id (optional enforcement)
   // Validate: variant items must have variants array
-  if (has_variants && (!variants || !variants.length)) {
+  if (resolvedHasVariants && (!variants || !variants.length)) {
     throw serviceError(
       "Variant items (READY_STOCK/READY_SAMPLE) must include a variants array",
       400,
@@ -172,7 +205,7 @@ async function createItem(data) {
         category,
         description: description || null,
         unit,
-        remaining_stock: has_variants ? 0 : (remaining_stock || 0),
+        remaining_stock: resolvedHasVariants ? 0 : (remaining_stock || 0),
         min_stock_level: min_stock_level ?? reorder_level ?? 0,
         reorder_amount: reorder_amount ?? 0,
         unit_price: unit_price ?? base_price ?? 0,
@@ -181,7 +214,7 @@ async function createItem(data) {
         rack_location: rack_location || null,
         image_url: image_url || null,
         linked_product_id: linked_product_id || null,
-        has_variants: !!has_variants,
+        has_variants: resolvedHasVariants,
         notes: notes || null,
         is_active: true,
       },
@@ -189,7 +222,7 @@ async function createItem(data) {
     );
 
     // Create variants if applicable
-    if (has_variants && variants && variants.length > 0) {
+    if (resolvedHasVariants && variants && variants.length > 0) {
       const variantRecords = variants.map((v) => ({
         inventory_item_id: item.id,
         size: v.size,
@@ -256,6 +289,39 @@ async function updateItem(itemId, updates) {
   delete updates.base_price;
 
   // reorder_amount is stored directly (same name in frontend and DB)
+  // Enforce linked_product_id for READY_STOCK / READY_SAMPLE on update
+  const LINKABLE_CATEGORIES = ["READY_STOCK", "READY_SAMPLE"];
+  const effectiveCategory = updates.category || item.category;
+  const effectiveLinkedProduct = updates.linked_product_id !== undefined
+    ? updates.linked_product_id
+    : item.linked_product_id;
+
+  if (LINKABLE_CATEGORIES.includes(effectiveCategory) && !effectiveLinkedProduct) {
+    throw serviceError(
+      `linked_product_id is required for ${effectiveCategory} items.`,
+      400,
+      "LINKED_PRODUCT_REQUIRED"
+    );
+  }
+
+  // Validate linked product exists if being set/changed
+  if (updates.linked_product_id) {
+    const linkedProduct = await Product.findByPk(updates.linked_product_id);
+    if (!linkedProduct) {
+      throw serviceError(
+        `Product with ID ${updates.linked_product_id} not found.`,
+        404,
+        "LINKED_PRODUCT_NOT_FOUND"
+      );
+    }
+    if (!linkedProduct.is_active) {
+      throw serviceError(
+        `Product "${linkedProduct.name}" is inactive.`,
+        400,
+        "LINKED_PRODUCT_INACTIVE"
+      );
+    }
+  }
 
   await sequelize.transaction(async (t) => {
     // Update variants if provided

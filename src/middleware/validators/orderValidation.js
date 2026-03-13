@@ -40,8 +40,8 @@ const orderItemSchema = Joi.object({
   quantity: Joi.number().integer().min(1).default(1),
   unit_price: Joi.number().min(0).default(0),
   unitPrice: Joi.number().min(0).default(0),
-  size_type: Joi.string().valid(...SIZE_TYPE_VALUES).optional(),
-  sizeType: Joi.string().valid(...SIZE_TYPE_VALUES).optional(),
+  size_type: Joi.string().valid(...SIZE_TYPE_VALUES, "Standard", "Custom").insensitive().optional(),
+  sizeType: Joi.string().valid(...SIZE_TYPE_VALUES, "Standard", "Custom").insensitive().optional(),
   size: Joi.string().trim().allow(null, "").optional(),
   included_items: Joi.array().items(includedItemSchema).optional(),
   includedItems: Joi.array().items(includedItemSchema).optional(),
@@ -73,7 +73,10 @@ const createOrderSchema = Joi.object({
   client_height: Joi.string().trim().max(50).allow(null, "").optional(),
   clientHeight: Joi.string().trim().max(50).allow(null, "").optional(),
   shipping_address: Joi.object().allow(null).optional(),
-  address: Joi.object().allow(null).optional(),
+  address: Joi.alternatives().try(
+      Joi.string().allow(null, ""),
+      Joi.object()
+    ).optional(),
 
   // People
   consultant_name: Joi.string().max(255).allow(null, "").optional(),

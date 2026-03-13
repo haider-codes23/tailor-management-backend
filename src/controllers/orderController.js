@@ -12,6 +12,8 @@
  */
 
 const orderService = require("../services/orderService");
+const readyStockService = require("../services/readyStockService");
+const { serializeOrder, serializeOrderList, serializeOrderItem } = require("../utils/orderSerializer");
 
 // =========================================================================
 // GET /api/orders — List orders with filters
@@ -38,7 +40,11 @@ async function listOrders(req, res, next) {
     });
 
     // MSW returns { orders, pagination } — no { success, data } wrapper
-    return res.json(result);
+    // Serialize orders to camelCase (matching MSW response shape)
+    return res.json({
+      orders: serializeOrderList(result.orders),
+      pagination: result.pagination,
+    });
   } catch (err) {
     next(err);
   }
@@ -53,7 +59,7 @@ async function getOrder(req, res, next) {
     const order = await orderService.getOrderById(req.params.id);
 
     // MSW returns the order object directly (with computed fields)
-    return res.json({ success: true, data: order });
+    return res.json({ success: true, data: serializeOrder(order) });
   } catch (err) {
     next(err);
   }
@@ -66,7 +72,7 @@ async function getOrder(req, res, next) {
 async function createOrder(req, res, next) {
   try {
     const order = await orderService.createOrder(req.body, req.user);
-    return res.status(201).json({ success: true, data: order });
+    return res.status(201).json({ success: true, data: serializeOrder(order) });
   } catch (err) {
     next(err);
   }
@@ -79,7 +85,7 @@ async function createOrder(req, res, next) {
 async function updateOrder(req, res, next) {
   try {
     const order = await orderService.updateOrder(req.params.id, req.body, req.user);
-    return res.json({ success: true, data: order });
+    return res.json({ success: true, data: serializeOrder(order) });
   } catch (err) {
     next(err);
   }
@@ -91,8 +97,16 @@ async function updateOrder(req, res, next) {
 
 async function cancelOrder(req, res, next) {
   try {
+    const productId = req?.params?.id
+
+    if (!productId) {
+      return res.status(422).json({
+        status: false,
+        message: "Product Must be Selected"
+      })
+    }
     const order = await orderService.cancelOrder(req.params.id, req.user);
-    return res.json({ success: true, data: order });
+    return res.json({ success: true, data: serializeOrder(order) });
   } catch (err) {
     next(err);
   }
@@ -131,7 +145,7 @@ async function getTimeline(req, res, next) {
 async function addPayment(req, res, next) {
   try {
     const order = await orderService.addPayment(req.params.id, req.body, req.user);
-    return res.json({ success: true, data: order });
+    return res.json({ success: true, data: serializeOrder(order) });
   } catch (err) {
     next(err);
   }
@@ -146,7 +160,37 @@ async function deletePayment(req, res, next) {
     const order = await orderService.deletePayment(
       req.params.id, req.params.paymentId, req.user
     );
-    return res.json({ success: true, data: order });
+    return res.json({ success: true, data: serializeOrder(order) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// =========================================================================
+// GET /api/orders/:id/ready-stock-issues — Ready stock movements
+// =========================================================================
+
+async function getReadyStockIssues(req, res, next) {
+  try {
+    const issues = await readyStockService.getReadyStockIssues(req.params.id);
+    return res.json({ success: true, data: issues });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// =========================================================================
+// POST /api/orders/:id/check-ready-stock — Manual recheck
+// =========================================================================
+
+async function checkReadyStock(req, res, next) {
+  try {
+    const forceProduction = req.body.force_production || req.body.forceProduction || false;
+    const result = await readyStockService.runReadyStockCheck(req.params.id, {
+      forceProduction,
+      user: req.user,
+    });
+    return res.json({ success: true, data: result });
   } catch (err) {
     next(err);
   }
@@ -162,4 +206,6 @@ module.exports = {
   getTimeline,
   addPayment,
   deletePayment,
+  getReadyStockIssues,
+  checkReadyStock,
 };

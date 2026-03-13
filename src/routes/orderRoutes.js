@@ -104,4 +104,20 @@ router.delete(
   orderController.deletePayment
 );
 
+// ─── Ready Stock routes ─────────────────────────────────────────────────────
+
+// GET /api/orders/:id/ready-stock-issues — inventory movements for RS orders
+router.get(
+  "/:id/ready-stock-issues",
+  requirePermission("orders.view"),
+  orderController.getReadyStockIssues
+);
+
+// POST /api/orders/:id/check-ready-stock — manual ready stock recheck
+router.post(
+  "/:id/check-ready-stock",
+  requirePermission("orders.edit"),
+  orderController.checkReadyStock
+);
+
 module.exports = router;
