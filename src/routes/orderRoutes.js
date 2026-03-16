@@ -120,4 +120,20 @@ router.post(
   orderController.checkReadyStock
 );
 
+
+const orderItemController = require("../controllers/orderItemController");
+const { addOrderItemSchema, validate: validateItem } = require("../middleware/validators/orderItemValidation");
+
+/**
+ * ADD this route AFTER the existing order routes (e.g. after the check-ready-stock route):
+ *
+ * POST /api/orders/:orderId/items — Add item to existing order
+ */
+router.post(
+  "/:orderId/items",
+  requirePermission("orders.edit"),
+  validateItem(addOrderItemSchema),
+  orderItemController.addOrderItem
+);
+
 module.exports = router;
