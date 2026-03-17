@@ -57,6 +57,11 @@ function camelCaseKeys(obj, depth = 0) {
       "enabled_size_fields", "enabledSizeFields",
       "enabled_height_fields", "enabledHeightFields",
       "images",
+      "order_form", "orderForm",
+      "order_form_versions", "orderFormVersions",
+      "garment_notes", "garmentNotes",
+      "measurement_categories", "measurementCategories",
+      "shipping_address", "shippingAddress",
     ];
 
     if (jsonbFields.includes(key) || jsonbFields.includes(camelKey)) {

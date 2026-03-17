@@ -105,7 +105,7 @@ function serializeTimelineEntry(activity) {
 
   return {
     id: json.id,
-    action: json.description || json.action,
+    action: json.action,
     user: json.performer ? json.performer.name : (json.performed_by || "System"),
     timestamp: json.created_at || json.createdAt,
     metadata: json.metadata,
