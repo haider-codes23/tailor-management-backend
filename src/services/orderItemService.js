@@ -390,7 +390,7 @@ async function approveForm(itemId, data, user) {
   let nextStatus;
   let timelineAction;
 
-  if (item.size_type === SIZE_TYPE.CUSTOM) {
+  if (item.size_type.toUpperCase() === SIZE_TYPE.CUSTOM) {
     nextStatus = ORDER_ITEM_STATUS.FABRICATION_BESPOKE;
     timelineAction = "Customer approved form - Forwarded to Fabrication for custom BOM";
   } else {

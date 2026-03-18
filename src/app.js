@@ -106,6 +106,9 @@ app.use("/api/orders", orderRoutes);
 // ── Phase 8D: Order Items ────────────────────────────────────────────
 const orderItemRoutes = require("./routes/orderItemRoutes");
 app.use("/api/order-items", orderItemRoutes);
+
+const fabricationRoutes = require("./routes/fabricationRoutes");
+app.use("/api/fabrication", fabricationRoutes);
 // Phase 7: app.use("/api/measurement-charts", measurementRoutes);
 // Phase 8: app.use("/api/orders", orderRoutes);
 // ... etc
