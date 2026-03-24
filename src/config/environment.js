@@ -56,4 +56,14 @@ module.exports = {
 
   // Frontend
   frontendUrl: process.env.FRONTEND_URL || "http://localhost:5173",
+
+  // Shopify
+  shopify: {
+    storeUrl: process.env.SHOPIFY_STORE_URL,
+    apiKey: process.env.SHOPIFY_API_KEY,
+    apiSecret: process.env.SHOPIFY_API_SECRET,
+    apiVersion: process.env.SHOPIFY_API_VERSION || "2026-01",
+    scopes: process.env.SHOPIFY_SCOPES || "read_customers,read_fulfillments,write_fulfillments,read_inventory,read_orders,write_orders,read_products,write_products",
+    accessToken: process.env.SHOPIFY_ACCESS_TOKEN,
+  },
 };

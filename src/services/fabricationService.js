@@ -64,7 +64,7 @@ async function getFabricationOrders() {
                 as: "items",
                 where: {
                     status: ORDER_ITEM_STATUS.FABRICATION_BESPOKE,
-                    size_type: SIZE_TYPE.CUSTOM,
+                    size_type: { [Op.iLike]: "custom" },
                 },
                 attributes: ["id"],
                 required: true, // INNER JOIN — only orders with matching items
@@ -108,7 +108,7 @@ async function getFabricationOrder(orderId) {
             {
                 model: OrderItem,
                 as: "items",
-                where: { size_type: SIZE_TYPE.CUSTOM },
+                where: { size_type: { [Op.iLike]: "custom" } },
                 required: false,
                 include: [
                     { model: OrderItemSection, as: "sections", order: [["created_at", "ASC"]] },

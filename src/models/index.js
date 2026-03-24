@@ -29,6 +29,9 @@ const OrderItem = require("./OrderItem")(sequelize);
 const OrderItemSection = require("./OrderItemSection")(sequelize);
 const OrderActivity = require("./OrderActivity")(sequelize);
 
+// ── Phase 8G: Shopify Integration ────────────────────────────────────
+const ShopifySyncLog = require("./ShopifySyncLog")(sequelize);
+
 const db = {
   sequelize,
   User,
@@ -44,6 +47,7 @@ const db = {
   OrderItem,
   OrderItemSection,
   OrderActivity,
+  ShopifySyncLog,
 };
 
 // ─── Set up associations ────────────────────────────────────────────────────
