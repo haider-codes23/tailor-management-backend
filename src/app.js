@@ -33,6 +33,10 @@ app.use(
   })
 );
 
+// ── Shopify webhooks (MUST be before express.json() for raw body access) ──
+const shopifyWebhookRoutes = require("./routes/shopifyWebhookRoutes");
+app.use("/api/webhooks/shopify", shopifyWebhookRoutes);
+
 // ============================================================================
 // PARSING MIDDLEWARE
 // ============================================================================
@@ -109,6 +113,14 @@ app.use("/api/order-items", orderItemRoutes);
 
 const fabricationRoutes = require("./routes/fabricationRoutes");
 app.use("/api/fabrication", fabricationRoutes);
+
+const shopifyAuthRoutes = require("./routes/shopifyAuthRoutes");
+app.use("/api/shopify/auth", shopifyAuthRoutes);
+
+const shopifyRoutes = require("./routes/shopifyRoutes");
+app.use("/api/shopify", shopifyRoutes);
+
+
 // Phase 7: app.use("/api/measurement-charts", measurementRoutes);
 // Phase 8: app.use("/api/orders", orderRoutes);
 // ... etc
