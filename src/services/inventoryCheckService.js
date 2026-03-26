@@ -30,6 +30,8 @@ const {
   InventoryItem,
   InventoryMovement,
   ProcurementDemand,
+  Packet,
+  PacketItem,
 } = require("../models");
 
 const {
@@ -481,6 +483,97 @@ async function runInventoryCheck(orderItemId, data, user) {
       transaction: t,
     });
 
+    // ── Auto-create Packet when sections pass ─────────────────────────
+    let createdPacket = null;
+    console.log("📦 passedSections:", passedSections, "failedSections:", failedSections);
+    if (passedSections.length > 0) {
+      console.log("📦 Attempting to create packet for order item:", orderItemId);
+      // Check if a packet already exists for this order item
+      let existingPacket = await Packet.findOne({
+        where: { order_item_id: orderItemId },
+        transaction: t,
+      });
+
+      if (!existingPacket) {
+        // Create new packet
+        const isPartial = failedSections.length > 0;
+        existingPacket = await Packet.create(
+          {
+            order_item_id: orderItemId,
+            order_id: item.order_id,
+            status: "PENDING",
+            is_partial: isPartial,
+            packet_round: 1,
+            sections_included: passedSections,
+            sections_pending: failedSections,
+            current_round_sections: passedSections,
+            verified_sections: [],
+            total_items: 0,
+            picked_items: 0,
+            timeline: [
+              {
+                id: `timeline-${Date.now()}`,
+                action: isPartial
+                  ? `Partial packet created for sections: ${passedSections.join(", ")}`
+                  : `Packet created for all sections: ${passedSections.join(", ")}`,
+                user: "System",
+                timestamp: now.toISOString(),
+                details: isPartial
+                  ? `Pending sections: ${failedSections.join(", ")}`
+                  : `${stockDeductions.length} materials to pick`,
+              },
+            ],
+          },
+          { transaction: t }
+        );
+
+        // Create packet items from the stock deductions (materials that passed)
+        // We use the material requirements for passed sections, not the deductions
+        const passedRequirements = allMaterialRequirements.filter((req) =>
+          passedSections.includes(req.piece?.toLowerCase() || req.piece)
+        );
+
+        let itemCount = 0;
+        for (const req of passedRequirements) {
+          if (req.requiredQty > 0) {
+            // Get rack location from inventory item
+            const invItem = await InventoryItem.findByPk(req.inventoryItemId, {
+              attributes: ["rack_location", "category"],
+              transaction: t,
+            });
+
+            await PacketItem.create(
+              {
+                packet_id: existingPacket.id,
+                inventory_item_id: req.inventoryItemId,
+                inventory_item_name: req.inventoryItemName,
+                inventory_item_sku: req.inventoryItemSku,
+                inventory_item_category: invItem?.category || "",
+                required_qty: req.requiredQty,
+                unit: req.unit,
+                rack_location: invItem?.rack_location || "TBD",
+                piece: req.piece?.toLowerCase() || req.piece,
+                is_picked: false,
+                picked_qty: 0,
+              },
+              { transaction: t }
+            );
+            itemCount++;
+          }
+        }
+
+        // Update total_items count
+        await existingPacket.update(
+          { total_items: itemCount },
+          { transaction: t }
+        );
+
+        createdPacket = existingPacket;
+      }
+      // If packet already exists (e.g., from a rerun), we'd add materials to it
+      // This will be handled in rerunSectionCheck
+    }
+
     await t.commit();
 
     // Re-fetch the updated item with sections
@@ -498,8 +591,8 @@ async function runInventoryCheck(orderItemId, data, user) {
       stockDeductions,
       nextStatus,
       procurementDemandsCreated: allShortages.length,
-      packet: null, // Packet creation is Phase 10
-      packetCreated: false,
+      packet: createdPacket || null,
+      packetCreated: !!createdPacket,
     };
   } catch (err) {
     try { await t.rollback(); } catch (_) { /* already rolled back */ }
@@ -790,6 +883,150 @@ async function rerunSectionCheck(orderItemId, data, user) {
       },
       transaction: t,
     });
+
+    // ── Add materials to existing packet for newly passed sections ────
+    if (passedSections.length > 0) {
+      let existingPacket = await Packet.findOne({
+        where: { order_item_id: orderItemId },
+        transaction: t,
+      });
+
+      if (existingPacket) {
+        // Add new packet items for the newly passed sections
+        const passedRequirements = newMaterialRequirements.filter((req) =>
+          passedSections.includes(req.piece?.toLowerCase() || req.piece)
+        );
+
+        let newItemCount = 0;
+        for (const req of passedRequirements) {
+          if (req.requiredQty > 0) {
+            const invItem = await InventoryItem.findByPk(req.inventoryItemId, {
+              attributes: ["rack_location", "category"],
+              transaction: t,
+            });
+
+            await PacketItem.create(
+              {
+                packet_id: existingPacket.id,
+                inventory_item_id: req.inventoryItemId,
+                inventory_item_name: req.inventoryItemName,
+                inventory_item_sku: req.inventoryItemSku,
+                inventory_item_category: invItem?.category || "",
+                required_qty: req.requiredQty,
+                unit: req.unit,
+                rack_location: invItem?.rack_location || "TBD",
+                piece: req.piece?.toLowerCase() || req.piece,
+                is_picked: false,
+                picked_qty: 0,
+              },
+              { transaction: t }
+            );
+            newItemCount++;
+          }
+        }
+
+        // Update packet
+        const currentSectionsIncluded = existingPacket.sections_included || [];
+        const updatedSectionsIncluded = [
+          ...new Set([...currentSectionsIncluded, ...passedSections]),
+        ];
+        const updatedSectionsPending = (existingPacket.sections_pending || []).filter(
+          (s) => !passedSections.includes(s.toLowerCase())
+        );
+
+        const newTimeline = [...(existingPacket.timeline || [])];
+        newTimeline.push({
+          id: `timeline-${Date.now()}`,
+          action: `Added materials for sections: ${passedSections.join(", ")} (Round ${existingPacket.packet_round + 1})`,
+          user: "System",
+          timestamp: now.toISOString(),
+        });
+
+        await existingPacket.update(
+          {
+            sections_included: updatedSectionsIncluded,
+            sections_pending: updatedSectionsPending,
+            current_round_sections: passedSections,
+            packet_round: existingPacket.packet_round + 1,
+            total_items: existingPacket.total_items + newItemCount,
+            previous_round_picked_items: existingPacket.picked_items,
+            picked_items: 0,
+            status: existingPacket.assigned_to ? "ASSIGNED" : "PENDING",
+            timeline: newTimeline,
+          },
+          { transaction: t }
+        );
+      } else {
+        // No packet exists yet — create one (same logic as runInventoryCheck)
+        const isPartial = failedSections.length > 0;
+        existingPacket = await Packet.create(
+          {
+            order_item_id: orderItemId,
+            order_id: item.order_id,
+            status: "PENDING",
+            is_partial: isPartial,
+            packet_round: 1,
+            sections_included: passedSections,
+            sections_pending: failedSections,
+            current_round_sections: passedSections,
+            verified_sections: [],
+            total_items: 0,
+            picked_items: 0,
+            timeline: [
+              {
+                id: `timeline-${Date.now()}`,
+                action: isPartial
+                  ? `Partial packet created for sections: ${passedSections.join(", ")}`
+                  : `Packet created for all sections: ${passedSections.join(", ")}`,
+                user: "System",
+                timestamp: now.toISOString(),
+                details: isPartial
+                  ? `Pending sections: ${failedSections.join(", ")}`
+                  : null,
+              },
+            ],
+          },
+          { transaction: t }
+        );
+
+        const passedRequirements = newMaterialRequirements.filter((req) =>
+          passedSections.includes(req.piece?.toLowerCase() || req.piece)
+        );
+
+        let itemCount = 0;
+        for (const req of passedRequirements) {
+          if (req.requiredQty > 0) {
+            const invItem = await InventoryItem.findByPk(req.inventoryItemId, {
+              attributes: ["rack_location", "category"],
+              transaction: t,
+            });
+
+            await PacketItem.create(
+              {
+                packet_id: existingPacket.id,
+                inventory_item_id: req.inventoryItemId,
+                inventory_item_name: req.inventoryItemName,
+                inventory_item_sku: req.inventoryItemSku,
+                inventory_item_category: invItem?.category || "",
+                required_qty: req.requiredQty,
+                unit: req.unit,
+                rack_location: invItem?.rack_location || "TBD",
+                piece: req.piece?.toLowerCase() || req.piece,
+                is_picked: false,
+                picked_qty: 0,
+              },
+              { transaction: t }
+            );
+            itemCount++;
+          }
+        }
+
+        await existingPacket.update(
+          { total_items: itemCount },
+          { transaction: t }
+        );
+      }
+    }
 
     await t.commit();
 
