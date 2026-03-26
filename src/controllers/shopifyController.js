@@ -111,6 +111,21 @@ async function handleOrderCreateWebhook(req, res, next) {
   }
 }
 
+// ─── POST /api/shopify/sync-products ──────────────────────────────────
+
+async function syncProducts(req, res, next) {
+  try {
+    console.log("🔄 Syncing products from Shopify...");
+    const result = await shopifyService.syncProducts(req.user);
+    console.log(
+      `✅ Product sync complete: ${result.summary.created} created, ${result.summary.linked} linked, ${result.summary.skipped} skipped`
+    );
+    res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   getSettings,
   testConnection,
@@ -118,4 +133,5 @@ module.exports = {
   listOrders,
   importOrder,
   handleOrderCreateWebhook,
+  syncProducts,
 };

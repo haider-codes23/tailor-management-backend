@@ -19,6 +19,7 @@ const {
   timelineEntrySchema,
   validate,
 } = require("../middleware/validators/orderItemValidation");
+const inventoryCheckCtrl = require("../controllers/inventoryCheckController");
 
 const router = Router();
 
@@ -75,6 +76,22 @@ router.post(
   requirePermission("orders.edit"),
   validate(approveFormSchema),
   ctrl.approveForm
+);
+
+// ─── Inventory Check ──────────────────────────────────────────────────
+
+// POST /api/order-items/:id/inventory-check — Run inventory check
+router.post(
+  "/:id/inventory-check",
+  requirePermission("orders.edit"),
+  inventoryCheckCtrl.runInventoryCheck
+);
+
+// POST /api/order-items/:id/rerun-section-inventory-check — Re-run for AWAITING_MATERIAL sections
+router.post(
+  "/:id/rerun-section-inventory-check",
+  requirePermission("orders.edit"),
+  inventoryCheckCtrl.rerunSectionInventoryCheck
 );
 
 module.exports = router;

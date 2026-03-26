@@ -356,116 +356,167 @@ async function createOrderFromShopifyData(so, user, t) {
     { transaction: t }
   );
 
-  // Process line items → OrderItems + Sections
-  const createdItems = [];
+// Process line items → OrderItems + Sections
+    const createdItems = [];
 
-  for (const lineItem of so.line_items || []) {
-    // Try to match to an internal product by Shopify product ID
-    let product = null;
-    let bom = null;
-    let includedItems = [];
-    let selectedAddOns = [];
+    for (const lineItem of so.line_items || []) {
+      // ── Parse the Shopify variant title ─────────────────────────────
+      // Format: "{Product Name} - {size} / {dupatta_option} / {pouch_option}"
+      // e.g. "Amethyst Allure - m / As Shown[+PKR28400] / None"
+      const variantTitle = lineItem.variant_title || "";
+      const lineTitle = lineItem.title || "Unknown Product";
 
-    if (lineItem.product_id) {
-      product = await Product.findOne({
-        where: { shopify_product_id: String(lineItem.product_id) },
-      });
-    }
+      // Parse size and add-on options from variant_title
+      // variant_title is just the variant part: "m / As Shown[+PKR28400] / None"
+      // lineItem.name is full: "Amethyst Allure - m / As Shown[+PKR28400] / None"
+      const variantParts = variantTitle.split("/").map((p) => p.trim());
+      const cleanSize = variantParts[0] || "Standard"; // "m", "s", "l", etc.
+      const dupattaOption = variantParts[1] || null;    // "As Shown[+PKR28400]" or "None"
+      const pouchOption = variantParts[2] || null;      // "As Shown[+PKR20000]" or "None"
 
-    // If we found a matching product, get its active BOM
-    if (product) {
-      bom = await Bom.findOne({
-        where: { product_id: product.id, is_active: true },
-        include: [{ model: BomItem, as: "items" }],
-      });
+      // Helper: extract price from option string like "As Shown[+PKR28400]"
+      function extractAddonPrice(optionStr) {
+        if (!optionStr || optionStr.toLowerCase() === "none") return null;
+        const priceMatch = optionStr.match(/\+PKR(\d+)/i);
+        return priceMatch ? parseFloat(priceMatch[1]) : 0;
+      }
 
-      if (bom && bom.items) {
-        for (const bomItem of bom.items) {
-          const entry = {
-            piece: bomItem.piece_name || bomItem.name,
-            price: 0,
-          };
-          if (bomItem.is_main || bomItem.type === "MAIN") {
-            includedItems.push(entry);
-          } else {
-            selectedAddOns.push(entry);
+      const dupattaPrice = extractAddonPrice(dupattaOption);
+      const pouchPrice = extractAddonPrice(pouchOption);
+      const hasDupatta = dupattaPrice !== null;
+      const hasPouch = pouchPrice !== null;
+
+      // ── Try to match to an internal product ─────────────────────────
+      let product = null;
+      let bom = null;
+      let includedItems = [];
+      let selectedAddOns = [];
+
+      // 1. Try matching by Shopify product ID
+      if (lineItem.product_id) {
+        product = await Product.findOne({
+          where: { shopify_product_id: String(lineItem.product_id) },
+        });
+      }
+
+      // 2. If no match by Shopify ID, try matching by product name
+      if (!product && lineTitle) {
+        product = await Product.findOne({
+          where: sequelize.where(
+            sequelize.fn("LOWER", sequelize.col("name")),
+            lineTitle.toLowerCase().trim()
+          ),
+        });
+      }
+
+      // 3. If product found, use its product_items for included pieces
+      if (product) {
+        const productItems = product.product_items || [];
+        for (const item of productItems) {
+          includedItems.push({
+            piece: item.piece,
+            price: parseFloat(item.price) || 0,
+          });
+        }
+
+        // Determine add-ons from parsed variant string + product's add_ons
+        const productAddOns = product.add_ons || [];
+        for (const addon of productAddOns) {
+          const addonLower = addon.piece.toLowerCase();
+          if (addonLower.includes("dupatta") && hasDupatta) {
+            selectedAddOns.push({
+              piece: addon.piece,
+              price: dupattaPrice || parseFloat(addon.price) || 0,
+            });
+          } else if (addonLower.includes("pouch") && hasPouch) {
+            selectedAddOns.push({
+              piece: addon.piece,
+              price: pouchPrice || parseFloat(addon.price) || 0,
+            });
           }
         }
+
+        // Also find active BOM for bom_id reference
+        bom = await Bom.findOne({
+          where: { product_id: product.id, is_active: true },
+        });
       }
+
+      // 4. Fallback: no product match — use product title as single piece
+      if (includedItems.length === 0 && selectedAddOns.length === 0) {
+        includedItems = [
+          { piece: lineTitle, price: parseFloat(lineItem.price) || 0 },
+        ];
+
+        // Still add add-ons from variant parsing even without product match
+        if (hasDupatta) {
+          selectedAddOns.push({ piece: "Dupatta", price: dupattaPrice || 0 });
+        }
+        if (hasPouch) {
+          selectedAddOns.push({ piece: "Pouch", price: pouchPrice || 0 });
+        }
+      }
+
+      // ── Create OrderItem ────────────────────────────────────────────
+      const orderItem = await OrderItem.create(
+        {
+          order_id: order.id,
+          product_id: product?.id || null,
+          product_name: lineTitle,
+          product_sku: lineItem.sku || (product?.sku) || null,
+          product_image: lineItem.image?.src || (product?.images?.[0]) || null,
+          quantity: lineItem.quantity || 1,
+          unit_price: parseFloat(lineItem.price) || 0,
+          size_type: SIZE_TYPE.STANDARD, // Shopify orders assumed standard
+          size: cleanSize,
+          status: ORDER_ITEM_STATUS.RECEIVED,
+          fulfillment_source: null,
+          bom_id: bom?.id || null,
+          included_items: includedItems,
+          selected_add_ons: selectedAddOns,
+          style: { type: "original", details: {}, attachments: [], image: null },
+          color: { type: "original", details: "", attachments: [], image: null },
+          fabric: { type: "original", details: "", attachments: [], image: null },
+        },
+        { transaction: t }
+      );
+
+      // ── Create sections ─────────────────────────────────────────────
+      const sectionRows = [];
+      for (const inc of includedItems) {
+        sectionRows.push({
+          order_item_id: orderItem.id,
+          piece: inc.piece,
+          type: SECTION_TYPE.MAIN,
+          price: inc.price || 0,
+          status: SECTION_STATUS.PENDING_INVENTORY_CHECK,
+        });
+      }
+      for (const addon of selectedAddOns) {
+        sectionRows.push({
+          order_item_id: orderItem.id,
+          piece: addon.piece,
+          type: SECTION_TYPE.ADD_ON,
+          price: addon.price || 0,
+          status: SECTION_STATUS.PENDING_INVENTORY_CHECK,
+        });
+      }
+
+      let createdSections = [];
+      if (sectionRows.length > 0) {
+        createdSections = await OrderItemSection.bulkCreate(sectionRows, {
+          transaction: t,
+        });
+      }
+
+      const sectionStatuses = buildSectionStatuses(createdSections);
+      await orderItem.update(
+        { section_statuses: sectionStatuses },
+        { transaction: t }
+      );
+
+      createdItems.push(orderItem);
     }
-
-    // If no BOM pieces found, create a single "garment" section
-    if (includedItems.length === 0 && selectedAddOns.length === 0) {
-      includedItems = [
-        { piece: lineItem.name || "garment", price: parseFloat(lineItem.price) || 0 },
-      ];
-    }
-
-    // Determine size info from Shopify variant
-    const variantTitle = lineItem.variant_title || "";
-    const sizeType = SIZE_TYPE.STANDARD;
-    const size = variantTitle || "Standard";
-
-    // Create OrderItem
-    const orderItem = await OrderItem.create(
-      {
-        order_id: order.id,
-        product_id: product?.id || null,
-        product_name: lineItem.title || lineItem.name || "Unknown Product",
-        product_sku: lineItem.sku || null,
-        product_image: lineItem.image?.src || null,
-        quantity: lineItem.quantity || 1,
-        unit_price: parseFloat(lineItem.price) || 0,
-        size_type: sizeType,
-        size: size,
-        status: ORDER_ITEM_STATUS.RECEIVED,
-        fulfillment_source: null,
-        bom_id: bom?.id || null,
-        included_items: includedItems,
-        selected_add_ons: selectedAddOns,
-        style: { type: "original", details: {}, attachments: [], image: null },
-        color: { type: "original", details: "", attachments: [], image: null },
-        fabric: { type: "original", details: "", attachments: [], image: null },
-      },
-      { transaction: t }
-    );
-
-    // Create sections
-    const sectionRows = [];
-    for (const inc of includedItems) {
-      sectionRows.push({
-        order_item_id: orderItem.id,
-        piece: inc.piece,
-        type: SECTION_TYPE.MAIN,
-        price: inc.price || 0,
-        status: SECTION_STATUS.PENDING_INVENTORY_CHECK,
-      });
-    }
-    for (const addon of selectedAddOns) {
-      sectionRows.push({
-        order_item_id: orderItem.id,
-        piece: addon.piece,
-        type: SECTION_TYPE.ADD_ON,
-        price: addon.price || 0,
-        status: SECTION_STATUS.PENDING_INVENTORY_CHECK,
-      });
-    }
-
-    let createdSections = [];
-    if (sectionRows.length > 0) {
-      createdSections = await OrderItemSection.bulkCreate(sectionRows, {
-        transaction: t,
-      });
-    }
-
-    const sectionStatuses = buildSectionStatuses(createdSections);
-    await orderItem.update(
-      { section_statuses: sectionStatuses },
-      { transaction: t }
-    );
-
-    createdItems.push(orderItem);
-  }
 
   // Log activity
   await OrderActivity.log({
@@ -668,6 +719,173 @@ async function handleOrderWebhook(shopifyOrderData) {
   }
 }
 
+
+// =========================================================================
+// G. SYNC PRODUCTS FROM SHOPIFY
+// =========================================================================
+
+/**
+ * Pull all products from Shopify and create/link them in the internal
+ * products table. Skips products that already have a matching
+ * shopify_product_id. For name collisions, updates the existing product
+ * with the shopify_product_id link.
+ *
+ * Each imported product gets:
+ *   - name, sku, description, images from Shopify
+ *   - shopify_product_id + shopify_variant_id linked
+ *   - product_items and add_ons left empty (configured manually later)
+ *   - is_active = true
+ *
+ * @param {Object} user - Authenticated user performing the sync
+ * @returns {Promise<Object>} Summary of created, linked, and skipped products
+ */
+async function syncProducts(user) {
+  const created = [];
+  const linked = [];
+  const skipped = [];
+  let page = 1;
+  let hasMore = true;
+  let sinceId = null;
+
+  while (hasMore) {
+    // Fetch products from Shopify (paginated, 250 max per page)
+    let query = "/products.json?limit=250&status=active";
+    if (sinceId) query += `&since_id=${sinceId}`;
+
+    const data = await shopifyApi.get(query);
+    const shopifyProducts = data.products || [];
+
+    if (shopifyProducts.length === 0) {
+      hasMore = false;
+      break;
+    }
+
+    for (const sp of shopifyProducts) {
+      const shopifyProductId = String(sp.id);
+
+      // 1. Check if already linked by shopify_product_id
+      const existingByShopifyId = await Product.findOne({
+        where: { shopify_product_id: shopifyProductId },
+      });
+      if (existingByShopifyId) {
+        skipped.push({
+          shopifyProductId,
+          name: sp.title,
+          reason: "already_linked",
+          internalId: existingByShopifyId.id,
+        });
+        continue;
+      }
+
+      // 2. Check if a product with the same name exists (link it)
+      const existingByName = await Product.findOne({
+        where: sequelize.where(
+          sequelize.fn("LOWER", sequelize.col("name")),
+          sp.title.toLowerCase().trim()
+        ),
+      });
+
+      if (existingByName) {
+        // Link existing product to Shopify
+        const firstVariant = (sp.variants || [])[0];
+        await existingByName.update({
+          shopify_product_id: shopifyProductId,
+          shopify_variant_id: firstVariant ? String(firstVariant.id) : null,
+          // Also update images if the internal product has none
+          ...((!existingByName.images || existingByName.images.length === 0) && sp.images?.length > 0
+            ? { images: sp.images.map((img) => img.src) }
+            : {}),
+        });
+
+        linked.push({
+          shopifyProductId,
+          name: sp.title,
+          internalId: existingByName.id,
+          internalSku: existingByName.sku,
+        });
+        continue;
+      }
+
+      // 3. Create new product
+      const firstVariant = (sp.variants || [])[0];
+
+      // Generate a unique SKU from Shopify handle or product ID
+      let sku = sp.handle
+        ? sp.handle.toUpperCase().replace(/-/g, "_").substring(0, 90)
+        : `SHOPIFY_${shopifyProductId}`;
+
+      // Ensure SKU uniqueness
+      const skuExists = await Product.findOne({ where: { sku } });
+      if (skuExists) {
+        sku = `${sku}_${shopifyProductId.slice(-6)}`;
+      }
+
+      // Extract images
+      const images = (sp.images || []).map((img) => img.src);
+
+      // Extract price from first variant
+      const price = firstVariant ? parseFloat(firstVariant.price) || 0 : 0;
+
+      try {
+        const newProduct = await Product.create({
+          name: sp.title,
+          sku: sku,
+          description: sp.body_html
+            ? sp.body_html.replace(/<[^>]*>/g, "").trim()
+            : null,
+          category: sp.product_type || null,
+          images: images,
+          product_items: [], // Will be configured manually
+          add_ons: [],       // Will be configured manually
+          subtotal: price,
+          discount: 0,
+          total_price: price,
+          shopify_product_id: shopifyProductId,
+          shopify_variant_id: firstVariant ? String(firstVariant.id) : null,
+          is_active: true,
+        });
+
+        created.push({
+          shopifyProductId,
+          name: sp.title,
+          internalId: newProduct.id,
+          sku: sku,
+          variantCount: (sp.variants || []).length,
+          imageCount: images.length,
+        });
+      } catch (createErr) {
+        skipped.push({
+          shopifyProductId,
+          name: sp.title,
+          reason: `create_failed: ${createErr.message}`,
+        });
+      }
+    }
+
+    // Pagination: use since_id of the last product
+    sinceId = shopifyProducts[shopifyProducts.length - 1].id;
+
+    // If we got fewer than 250, we've reached the end
+    if (shopifyProducts.length < 250) {
+      hasMore = false;
+    }
+
+    page++;
+  }
+
+  return {
+    summary: {
+      created: created.length,
+      linked: linked.length,
+      skipped: skipped.length,
+      total: created.length + linked.length + skipped.length,
+    },
+    created,
+    linked,
+    skipped,
+  };
+}
+
 // =========================================================================
 // Exports
 // =========================================================================
@@ -679,4 +897,5 @@ module.exports = {
   listShopifyOrders,
   importShopifyOrder,
   handleOrderWebhook,
+  syncProducts,
 };

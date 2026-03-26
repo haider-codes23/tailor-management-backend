@@ -39,6 +39,12 @@ router.post(
   ctrl.registerWebhooks
 );
 
+router.post(
+  "/sync-products",
+  requirePermission("admin"),
+  ctrl.syncProducts
+);
+
 // ─── Order endpoints ──────────────────────────────────────────────────
 
 router.get(

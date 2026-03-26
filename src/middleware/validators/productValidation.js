@@ -95,7 +95,10 @@ const updateBOMSchema = Joi.object({
 // =========================================================================
 
 const addBOMItemSchema = Joi.object({
-  inventory_item_id: Joi.string().uuid().required(),
+  inventory_item_id: Joi.alternatives()
+    .try(Joi.string().uuid(), Joi.number().integer())
+    .required()
+    .custom((value) => String(value)),
   piece: Joi.string().max(100).required(),
   quantity_per_unit: Joi.number().positive().required(),
   unit: Joi.string().max(50).allow(null, "").optional(),
