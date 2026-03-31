@@ -120,6 +120,13 @@ app.use("/api/shopify/auth", shopifyAuthRoutes);
 const shopifyRoutes = require("./routes/shopifyRoutes");
 app.use("/api/shopify", shopifyRoutes);
 
+const procurementRoutes = require("./routes/procurementRoutes");
+app.use("/api/procurement-demands", procurementRoutes);
+
+// ── Phase 10: Packets
+const packetRoutes = require("./routes/packetRoutes");
+app.use("/api/packets", packetRoutes);
+
 
 // Phase 7: app.use("/api/measurement-charts", measurementRoutes);
 // Phase 8: app.use("/api/orders", orderRoutes);

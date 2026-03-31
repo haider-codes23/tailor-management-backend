@@ -19,6 +19,8 @@ const {
   timelineEntrySchema,
   validate,
 } = require("../middleware/validators/orderItemValidation");
+const inventoryCheckCtrl = require("../controllers/inventoryCheckController");
+const packetCtrl = require("../controllers/packetController");
 
 const router = Router();
 
@@ -75,6 +77,74 @@ router.post(
   requirePermission("orders.edit"),
   validate(approveFormSchema),
   ctrl.approveForm
+);
+
+// ─── Inventory Check ──────────────────────────────────────────────────
+
+// POST /api/order-items/:id/inventory-check — Run inventory check
+router.post(
+  "/:id/inventory-check",
+  requirePermission("orders.edit"),
+  inventoryCheckCtrl.runInventoryCheck
+);
+
+// POST /api/order-items/:id/rerun-section-inventory-check — Re-run for AWAITING_MATERIAL sections
+router.post(
+  "/:id/rerun-section-inventory-check",
+  requirePermission("orders.edit"),
+  inventoryCheckCtrl.rerunSectionInventoryCheck
+);
+
+// ─── Packet Workflow (Phase 10) ───────────────────────────────────────
+
+
+// GET /api/order-items/:id/packet — Get packet for an order item
+router.get(
+  "/:id/packet",
+  requirePermission("production.view"),
+  packetCtrl.getPacket
+);
+
+// POST /api/order-items/:id/packet/assign — Assign packet
+router.post(
+  "/:id/packet/assign",
+  requirePermission("production.manage"),
+  packetCtrl.assignPacket
+);
+
+// POST /api/order-items/:id/packet/start — Start picking
+router.post(
+  "/:id/packet/start",
+  requirePermission("production.view"),
+  packetCtrl.startPacket
+);
+
+// POST /api/order-items/:id/packet/pick-item — Mark item picked
+router.post(
+  "/:id/packet/pick-item",
+  requirePermission("production.view"),
+  packetCtrl.pickItem
+);
+
+// POST /api/order-items/:id/packet/complete — Mark packet complete
+router.post(
+  "/:id/packet/complete",
+  requirePermission("production.view"),
+  packetCtrl.completePacket
+);
+
+// POST /api/order-items/:id/packet/approve — Approve packet
+router.post(
+  "/:id/packet/approve",
+  requirePermission("production.approve_packets"),
+  packetCtrl.approvePacket
+);
+
+// POST /api/order-items/:id/packet/reject — Reject packet
+router.post(
+  "/:id/packet/reject",
+  requirePermission("production.approve_packets"),
+  packetCtrl.rejectPacket
 );
 
 module.exports = router;

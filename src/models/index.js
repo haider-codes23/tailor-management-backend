@@ -32,6 +32,13 @@ const OrderActivity = require("./OrderActivity")(sequelize);
 // ── Phase 8G: Shopify Integration ────────────────────────────────────
 const ShopifySyncLog = require("./ShopifySyncLog")(sequelize);
 
+// ── Phase 9: Procurement ─────────────────────────────────────────────
+const ProcurementDemand = require("./ProcurementDemand")(sequelize);
+
+// ── Phase 10: Packets ────────────────────────────────────────────────
+const Packet = require("./Packet")(sequelize);
+const PacketItem = require("./PacketItem")(sequelize);
+
 const db = {
   sequelize,
   User,
@@ -48,6 +55,9 @@ const db = {
   OrderItemSection,
   OrderActivity,
   ShopifySyncLog,
+  ProcurementDemand,
+  Packet,
+  PacketItem,
 };
 
 // ─── Set up associations ────────────────────────────────────────────────────
