@@ -825,23 +825,38 @@ async function rerunSectionCheck(orderItemId, data, user) {
     // Determine overall item status after rerun
     // Check ALL sections (not just rechecked ones) to determine overall status
     const allSectionStatuses = Object.values(updatedSectionStatuses);
-    const allPassed = allSectionStatuses.every(
-      (s) =>
-        s.status === SECTION_STATUS.INVENTORY_PASSED ||
-        s.status === SECTION_STATUS.PACKET_CREATED ||
-        s.status === SECTION_STATUS.PACKET_VERIFIED
+    // Statuses that mean "this section has already cleared inventory check"
+    const alreadyClearedStatuses = [
+      SECTION_STATUS.INVENTORY_PASSED,
+      SECTION_STATUS.PACKET_CREATED,
+      SECTION_STATUS.PACKET_VERIFIED,
+      SECTION_STATUS.READY_FOR_DYEING,
+      SECTION_STATUS.DYEING_ACCEPTED,
+      SECTION_STATUS.DYEING_IN_PROGRESS,
+      SECTION_STATUS.DYEING_COMPLETED,
+      SECTION_STATUS.READY_FOR_PRODUCTION,
+      SECTION_STATUS.IN_PRODUCTION,
+      SECTION_STATUS.PRODUCTION_COMPLETED,
+    ];
+
+    const allCleared = allSectionStatuses.every(
+      (s) => alreadyClearedStatuses.includes(s.status)
     );
-    const somePassed = allSectionStatuses.some(
+    const someNewlyPassed = allSectionStatuses.some(
       (s) => s.status === SECTION_STATUS.INVENTORY_PASSED
     );
     const someAwaiting = allSectionStatuses.some(
-      (s) => s.status === SECTION_STATUS.AWAITING_MATERIAL
+      (s) =>
+        s.status === SECTION_STATUS.AWAITING_MATERIAL ||
+        s.status === SECTION_STATUS.PENDING_INVENTORY_CHECK
     );
 
-    let nextStatus = item.status; // default: keep current
-    if (allPassed) {
+    let nextStatus = item.status;
+    if (allCleared && someNewlyPassed) {
+      nextStatus = ORDER_ITEM_STATUS.PARTIAL_CREATE_PACKET;
+    } else if (someNewlyPassed && !someAwaiting) {
       nextStatus = ORDER_ITEM_STATUS.CREATE_PACKET;
-    } else if (somePassed && someAwaiting) {
+    } else if (someNewlyPassed && someAwaiting) {
       nextStatus = ORDER_ITEM_STATUS.PARTIAL_CREATE_PACKET;
     } else if (someAwaiting) {
       nextStatus = ORDER_ITEM_STATUS.AWAITING_MATERIAL;
@@ -892,6 +907,19 @@ async function rerunSectionCheck(orderItemId, data, user) {
       });
 
       if (existingPacket) {
+
+        // Remove old packet items for sections being re-processed
+        // This handles the dyeing rejection case where sections go through
+        // inventory check → packet creation again, preventing duplicates
+        for (const sec of passedSections) {
+          await PacketItem.destroy({
+            where: {
+              packet_id: existingPacket.id,
+              piece: { [Op.iLike]: sec.toLowerCase() },
+            },
+            transaction: t,
+          });
+        }
         // Add new packet items for the newly passed sections
         const passedRequirements = newMaterialRequirements.filter((req) =>
           passedSections.includes(req.piece?.toLowerCase() || req.piece)
@@ -942,13 +970,19 @@ async function rerunSectionCheck(orderItemId, data, user) {
           timestamp: now.toISOString(),
         });
 
+        // Count actual items in DB after removal + addition
+        const updatedTotalItems = await PacketItem.count({
+          where: { packet_id: existingPacket.id },
+          transaction: t,
+        });
+
         await existingPacket.update(
           {
             sections_included: updatedSectionsIncluded,
             sections_pending: updatedSectionsPending,
             current_round_sections: passedSections,
             packet_round: existingPacket.packet_round + 1,
-            total_items: existingPacket.total_items + newItemCount,
+            total_items: updatedTotalItems,
             previous_round_picked_items: existingPacket.picked_items,
             picked_items: 0,
             status: existingPacket.assigned_to ? "ASSIGNED" : "PENDING",

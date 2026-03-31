@@ -194,6 +194,23 @@ const ACTIVITY_ACTION_TYPE = {
 };
 
 // =========================================================================
+// DYEING REJECTION REASONS
+// =========================================================================
+
+const DYEING_REJECTION_REASONS = {
+  MATERIAL_QUALITY_ISSUE: { code: "MATERIAL_QUALITY_ISSUE", label: "Material Quality Issue" },
+  COLOR_MISMATCH: { code: "COLOR_MISMATCH", label: "Color Mismatch" },
+  FABRIC_DEFECT: { code: "FABRIC_DEFECT", label: "Fabric Defect" },
+  MISSING_INVENTORY_MATERIAL: { code: "MISSING_INVENTORY_MATERIAL", label: "Missing Inventory Material" },
+  INCORRECT_MEASUREMENTS: { code: "INCORRECT_MEASUREMENTS", label: "Incorrect Measurements" },
+  STAINS_OR_MARKS: { code: "STAINS_OR_MARKS", label: "Stains or Marks" },
+  WRONG_MATERIAL_TYPE: { code: "WRONG_MATERIAL_TYPE", label: "Wrong Material Type" },
+  INSUFFICIENT_QUANTITY: { code: "INSUFFICIENT_QUANTITY", label: "Insufficient Quantity" },
+  DAMAGE_DURING_HANDLING: { code: "DAMAGE_DURING_HANDLING", label: "Damage During Handling" },
+  OTHER: { code: "OTHER", label: "Other" },
+};
+
+// =========================================================================
 // Exports
 // =========================================================================
 
@@ -215,4 +232,5 @@ module.exports = {
   SECTION_TYPE,
   SHOPIFY_SYNC_STATUS,
   ACTIVITY_ACTION_TYPE,
+  DYEING_REJECTION_REASONS,
 };
