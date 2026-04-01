@@ -39,6 +39,10 @@ const ProcurementDemand = require("./ProcurementDemand")(sequelize);
 const Packet = require("./Packet")(sequelize);
 const PacketItem = require("./PacketItem")(sequelize);
 
+// ── Phase 12: Production ─────────────────────────────────────────────
+const ProductionTask = require("./ProductionTask")(sequelize);
+const ProductionAssignment = require("./ProductionAssignment")(sequelize);
+
 const db = {
   sequelize,
   User,
@@ -58,6 +62,8 @@ const db = {
   ProcurementDemand,
   Packet,
   PacketItem,
+  ProductionTask,
+  ProductionAssignment,
 };
 
 // ─── Set up associations ────────────────────────────────────────────────────

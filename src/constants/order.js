@@ -211,6 +211,31 @@ const DYEING_REJECTION_REASONS = {
 };
 
 // =========================================================================
+// PRODUCTION TASK STATUS
+// =========================================================================
+
+const PRODUCTION_TASK_STATUS = {
+  PENDING: "PENDING",
+  READY: "READY",
+  IN_PROGRESS: "IN_PROGRESS",
+  COMPLETED: "COMPLETED",
+};
+
+// =========================================================================
+// PRODUCTION TASK TYPES
+// =========================================================================
+
+const PRODUCTION_TASK_TYPES = {
+  ADDA_WORK: "ADDA_WORK",
+  CUTTING_WORK: "CUTTING_WORK",
+  IRON_WORK: "IRON_WORK",
+  TASSELS_WORK: "TASSELS_WORK",
+  ALTERATION_WORK: "ALTERATION_WORK",
+  EMBROIDERY_WORK: "EMBROIDERY_WORK",
+  CUSTOM: "CUSTOM",
+};
+
+// =========================================================================
 // Exports
 // =========================================================================
 
@@ -233,4 +258,6 @@ module.exports = {
   SHOPIFY_SYNC_STATUS,
   ACTIVITY_ACTION_TYPE,
   DYEING_REJECTION_REASONS,
+  PRODUCTION_TASK_STATUS,
+  PRODUCTION_TASK_TYPES,
 };
