@@ -131,6 +131,10 @@ app.use("/api/packets", packetRoutes);
 const dyeingRoutes = require("./routes/dyeingRoutes");
 app.use("/api/dyeing", dyeingRoutes);
 
+// ── Phase 12: Production
+const productionRoutes = require("./routes/productionRoutes");
+app.use("/api/production", productionRoutes);
+
 
 // Phase 7: app.use("/api/measurement-charts", measurementRoutes);
 // Phase 8: app.use("/api/orders", orderRoutes);
