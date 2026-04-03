@@ -135,6 +135,14 @@ app.use("/api/dyeing", dyeingRoutes);
 const productionRoutes = require("./routes/productionRoutes");
 app.use("/api/production", productionRoutes);
 
+// ── Phase 13: QA & Sales Approval
+const qaRoutes = require("./routes/qaRoutes");
+const salesApprovalRoutes = require("./routes/salesApprovalRoutes");
+const youtubeRoutes = require("./routes/youtubeRoutes");
+app.use("/api/qa", qaRoutes);
+app.use("/api/sales", salesApprovalRoutes);
+app.use("/api/youtube", youtubeRoutes);
+
 
 // Phase 7: app.use("/api/measurement-charts", measurementRoutes);
 // Phase 8: app.use("/api/orders", orderRoutes);

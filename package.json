@@ -9,7 +9,6 @@
     "lint": "eslint src/ --ext .js",
     "lint:fix": "eslint src/ --ext .js --fix",
     "format": "prettier --write \"src/**/*.js\" \"*.js\"",
-
     "db:migrate": "npx sequelize-cli db:migrate",
     "db:migrate:undo": "npx sequelize-cli db:migrate:undo",
     "db:migrate:undo:all": "npx sequelize-cli db:migrate:undo:all",
@@ -40,10 +39,12 @@
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
+    "googleapis": "^171.4.0",
     "helmet": "^8.1.0",
     "joi": "^18.0.2",
     "jsonwebtoken": "^9.0.3",
     "morgan": "^1.10.1",
+    "multer": "^2.1.1",
     "pg": "^8.19.0",
     "pg-hstore": "^2.3.4",
     "sequelize": "^6.37.7"

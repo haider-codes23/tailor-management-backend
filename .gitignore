@@ -2,4 +2,5 @@ node_modules/
 .env
 *.log
 dist/
-.DS_Store
+.DS_Storeuploads/
+uploads/

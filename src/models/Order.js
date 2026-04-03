@@ -212,6 +212,19 @@ module.exports = (sequelize) => {
         allowNull: false,
         defaultValue: [],
       },
+      // ── QA & Sales Approval (Phase 13) ──────────────────────────────
+      sent_to_client_at: { type: DataTypes.DATE, allowNull: true },
+      sent_to_client_by: { type: DataTypes.UUID, allowNull: true },
+      client_approval_data: {
+        type: DataTypes.JSONB,
+        allowNull: true,
+        comment: "{approvalScreenshots, approvedAt, approvedBy, clientNotes}",
+      },
+      cancellation_data: {
+        type: DataTypes.JSONB,
+        allowNull: true,
+        comment: "{reason, cancelledBy, cancelledByName, cancelledAt}",
+      },
     },
     {
       tableName: "orders",
