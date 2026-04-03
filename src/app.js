@@ -143,10 +143,10 @@ app.use("/api/qa", qaRoutes);
 app.use("/api/sales", salesApprovalRoutes);
 app.use("/api/youtube", youtubeRoutes);
 
+// ── Phase 14: Dispatch
+const dispatchRoutes = require("./routes/dispatchRoutes");
+app.use("/api/dispatch", dispatchRoutes);
 
-// Phase 7: app.use("/api/measurement-charts", measurementRoutes);
-// Phase 8: app.use("/api/orders", orderRoutes);
-// ... etc
 
 // ============================================================================
 // 404 HANDLER
