@@ -179,6 +179,18 @@ module.exports = (sequelize) => {
         comment: "Custom BOM created by fabrication for non-standard sizes",
       },
 
+      // ── QA Video (Phase 13) ─────────────────────────────────────────
+      video_data: {
+        type: DataTypes.JSONB,
+        allowNull: true,
+        comment: "{youtubeUrl, youtubeVideoId, uploadedBy, uploadedByName, uploadedAt, videoHistory}",
+      },
+      re_video_request: {
+        type: DataTypes.JSONB,
+        allowNull: true,
+        comment: "{requestedBy, requestedByName, requestedAt, sections, notes}",
+      },
+
       modesty: { type: DataTypes.BOOLEAN, allowNull: true },
       notes: { type: DataTypes.TEXT, allowNull: true },
     },

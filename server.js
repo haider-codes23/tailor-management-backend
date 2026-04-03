@@ -9,6 +9,16 @@
  * Kept separate from app.js so we can import app in tests
  * without actually starting the server.
  */
+const dns = require("dns");
+dns.setDefaultResultOrder("ipv4first");
+
+// Force ALL HTTPS connections to use IPv4 (fixes googleapis IPv6 issue)
+const origHttpsAgent = require("https").Agent;
+const _origCreateConnection = origHttpsAgent.prototype.createConnection;
+origHttpsAgent.prototype.createConnection = function(options, callback) {
+  options.family = 4;
+  return _origCreateConnection.call(this, options, callback);
+};
 
 const app = require("./src/app");
 const sequelize = require("./src/config/database");

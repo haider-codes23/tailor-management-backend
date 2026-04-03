@@ -236,6 +236,21 @@ const PRODUCTION_TASK_TYPES = {
 };
 
 // =========================================================================
+// QA REJECTION REASONS
+// =========================================================================
+
+const QA_REJECTION_REASONS = {
+  STITCHING_DEFECT: { label: "Stitching Defect", description: "Improper or uneven stitching" },
+  COLOR_MISMATCH: { label: "Color Mismatch", description: "Color does not match order specification" },
+  SIZE_ISSUE: { label: "Size Issue", description: "Garment does not match required measurements" },
+  FABRIC_DAMAGE: { label: "Fabric Damage", description: "Fabric tears, stains, or defects" },
+  EMBROIDERY_DEFECT: { label: "Embroidery Defect", description: "Poor embroidery quality or pattern issues" },
+  MISSING_COMPONENT: { label: "Missing Component", description: "Missing buttons, lining, or accessories" },
+  FINISHING_ISSUE: { label: "Finishing Issue", description: "Poor finishing, loose threads, or uneven hems" },
+  OTHER: { label: "Other", description: "Other quality issue" },
+};
+
+// =========================================================================
 // Exports
 // =========================================================================
 
@@ -260,4 +275,5 @@ module.exports = {
   DYEING_REJECTION_REASONS,
   PRODUCTION_TASK_STATUS,
   PRODUCTION_TASK_TYPES,
+  QA_REJECTION_REASONS,
 };

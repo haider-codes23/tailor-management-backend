@@ -43,6 +43,10 @@ const PacketItem = require("./PacketItem")(sequelize);
 const ProductionTask = require("./ProductionTask")(sequelize);
 const ProductionAssignment = require("./ProductionAssignment")(sequelize);
 
+// ── Phase 13: QA & Sales Approval ────────────────────────────────
+const QaReview = require("./QaReview")(sequelize);
+const ClientApproval = require("./ClientApproval")(sequelize);
+
 const db = {
   sequelize,
   User,
@@ -64,6 +68,8 @@ const db = {
   PacketItem,
   ProductionTask,
   ProductionAssignment,
+  QaReview,
+  ClientApproval,
 };
 
 // ─── Set up associations ────────────────────────────────────────────────────

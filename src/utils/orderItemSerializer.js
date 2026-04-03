@@ -60,6 +60,9 @@ function serializeOrderItem(item, opts = {}) {
     // Custom BOM
     customBOM: json.custom_bom || null,
 
+    // QA Video (Phase 13)
+    videoData: json.video_data || null,
+    reVideoRequest: json.re_video_request || null,
     modesty: json.modesty,
     notes: json.notes,
 
