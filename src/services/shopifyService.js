@@ -887,6 +887,380 @@ async function syncProducts(user) {
 }
 
 // =========================================================================
+// H. SYNC ORDER TO SHOPIFY (Manual order → Shopify draft order)
+// =========================================================================
+
+/**
+ * Push a manual internal order to Shopify as a draft order, then complete it.
+ * This creates a real Shopify order linked back to the internal order.
+ *
+ * @param {string} orderId - Internal order UUID
+ * @param {Object} user - Authenticated user performing the sync
+ * @returns {Promise<Object>} { shopifyOrderId, shopifyOrderNumber, syncStatus }
+ */
+async function syncOrderToShopify(orderId, user) {
+  const order = await Order.findByPk(orderId, {
+    include: [
+      {
+        model: OrderItem,
+        as: "items",
+        include: [
+          { model: Product, as: "product", attributes: ["id", "name", "sku", "shopify_product_id", "shopify_variant_id"] },
+        ],
+      },
+    ],
+  });
+
+  if (!order) {
+    throw serviceError("Order not found", 404, "NOT_FOUND");
+  }
+
+  // If already synced, throw error
+  if (order.shopify_order_id) {
+    throw serviceError(
+      `Order ${order.order_number} is already synced to Shopify (ID: ${order.shopify_order_id})`,
+      409,
+      "ALREADY_SYNCED"
+    );
+  }
+
+  // Create sync log
+  const syncLog = await ShopifySyncLog.create({
+    order_id: orderId,
+    sync_type: "EXPORT",
+    sync_direction: "LOCAL_TO_SHOPIFY",
+    status: "IN_PROGRESS",
+    initiated_by: user?.id || null,
+  });
+
+  try {
+    // Build line items for the Shopify draft order
+    const lineItems = (order.items || []).map((item) => {
+      const product = item.product;
+
+      // If the product has a Shopify variant ID, use it for proper linking
+      if (product?.shopify_variant_id) {
+        return {
+          variant_id: parseInt(product.shopify_variant_id, 10),
+          quantity: item.quantity || 1,
+        };
+      }
+
+      // Otherwise, create a custom line item
+      return {
+        title: product?.name || item.product_name || "Custom Item",
+        quantity: item.quantity || 1,
+        price: parseFloat(item.unit_price) || 0,
+        requires_shipping: true,
+      };
+    });
+
+    // Build customer info
+    const nameParts = (order.customer_name || "Customer").split(" ");
+    const firstName = nameParts[0] || "Customer";
+    const lastName = nameParts.slice(1).join(" ") || "";
+
+    // Parse shipping address — handle both JSONB object and plain string
+    let parsedAddress = null;
+    const rawAddr = order.shipping_address;
+
+    if (rawAddr && typeof rawAddr === "object" && !Array.isArray(rawAddr)) {
+      // JSONB object format: { line1, line2, city, state, country, postal_code }
+      // or { street1, street2, city, state, postalCode, country }
+      parsedAddress = {
+        first_name: firstName,
+        last_name: lastName,
+        address1: rawAddr.line1 || rawAddr.street1 || rawAddr.address1 || "",
+        address2: rawAddr.line2 || rawAddr.street2 || rawAddr.address2 || "",
+        city: rawAddr.city || "",
+        province: rawAddr.state || rawAddr.province || "",
+        country: rawAddr.country || order.destination || "PK",
+        zip: rawAddr.postal_code || rawAddr.postalCode || rawAddr.zip || "",
+        phone: order.customer_phone || "",
+      };
+    } else if (rawAddr && typeof rawAddr === "string" && rawAddr.trim()) {
+      // Plain string address — put entire string in address1
+      parsedAddress = {
+        first_name: firstName,
+        last_name: lastName,
+        address1: rawAddr.trim(),
+        address2: "",
+        city: "",
+        province: "",
+        country: order.destination || "PK",
+        zip: "",
+        phone: order.customer_phone || "",
+      };
+    }
+
+    // Build Shopify customer object
+    // Shopify requires email OR phone to create a customer association
+    let shopifyCustomer = undefined;
+    if (order.customer_email) {
+      shopifyCustomer = {
+        first_name: firstName,
+        last_name: lastName,
+        email: order.customer_email,
+        ...(order.customer_phone ? { phone: order.customer_phone } : {}),
+      };
+    } else if (order.customer_phone) {
+      shopifyCustomer = {
+        first_name: firstName,
+        last_name: lastName,
+        phone: order.customer_phone,
+      };
+    }
+    // If neither email nor phone, we skip customer — Shopify allows orders without customer
+
+    // Build billing address (same as shipping if not separate)
+    const billingAddress = parsedAddress ? { ...parsedAddress } : undefined;
+
+    const draftOrderPayload = {
+      line_items: lineItems,
+      customer: shopifyCustomer,
+      shipping_address: parsedAddress || undefined,
+      billing_address: billingAddress,
+      note: !shopifyCustomer
+        ? `Synced from internal order ${order.order_number} | Customer: ${order.customer_name || "Unknown"}`
+        : `Synced from internal order ${order.order_number}`,
+      tags: `internal_order:${order.order_number}`,
+      currency: order.currency || "PKR",
+    };
+
+    // Remove undefined keys
+    Object.keys(draftOrderPayload).forEach(
+      (key) => draftOrderPayload[key] === undefined && delete draftOrderPayload[key]
+    );
+
+    console.log(`🔄 Creating Shopify draft order for ${order.order_number}...`);
+
+    // Step 1: Create draft order
+    const draftResult = await shopifyApi.createDraftOrder(draftOrderPayload);
+    const draftOrder = draftResult.draft_order;
+
+    if (!draftOrder?.id) {
+      throw serviceError("Failed to create Shopify draft order — no ID returned", 500);
+    }
+
+    console.log(`📝 Draft order created: ${draftOrder.id}, completing...`);
+
+    // Step 2: Complete the draft order to convert it to a real order
+    const completedResult = await shopifyApi.completeDraftOrder(draftOrder.id, true);
+    const completedDraft = completedResult.draft_order;
+    const shopifyOrderId = completedDraft?.order_id;
+
+    if (!shopifyOrderId) {
+      throw serviceError(
+        "Draft order completed but no order_id returned. Check Shopify admin.",
+        500
+      );
+    }
+
+    // Step 3: Get the full order to extract the order number
+    const orderData = await shopifyApi.getOrder(shopifyOrderId);
+    const shopifyOrder = orderData.order;
+
+    // Step 4: Update internal order with Shopify link
+    await order.update({
+      shopify_order_id: String(shopifyOrderId),
+      shopify_order_number: shopifyOrder?.name || `#${shopifyOrderId}`,
+      shopify_sync_status: SHOPIFY_SYNC_STATUS?.SYNCED || "SYNCED",
+      shopify_last_synced_at: new Date(),
+    });
+
+    // Step 5: Log activity
+    await OrderActivity.create({
+      order_id: orderId,
+      action: "SYNCED_TO_SHOPIFY",
+      description: `Order synced to Shopify as ${shopifyOrder?.name || shopifyOrderId}`,
+      performed_by: user?.id || null,
+      metadata: {
+        shopifyOrderId: String(shopifyOrderId),
+        shopifyOrderNumber: shopifyOrder?.name,
+        draftOrderId: draftOrder.id,
+      },
+    });
+
+    // Step 6: Update sync log
+    await syncLog.update({
+      status: "SUCCESS",
+      response_payload: {
+        shopifyOrderId: String(shopifyOrderId),
+        shopifyOrderNumber: shopifyOrder?.name,
+        draftOrderId: draftOrder.id,
+      },
+      completed_at: new Date(),
+    });
+
+    console.log(
+      `✅ Order ${order.order_number} synced to Shopify as ${shopifyOrder?.name || shopifyOrderId}`
+    );
+
+    return {
+      shopifyOrderId: String(shopifyOrderId),
+      shopifyOrderNumber: shopifyOrder?.name || `#${shopifyOrderId}`,
+      shopifyAdminUrl: `https://${env.shopify.storeUrl}/admin/orders/${shopifyOrderId}`,
+      syncStatus: "SYNCED",
+      syncedAt: new Date().toISOString(),
+    };
+  } catch (err) {
+    await syncLog.update({
+      status: "FAILED",
+      error_message: err.message,
+      error_details: { stack: err.stack, code: err.code },
+      completed_at: new Date(),
+    });
+
+    // Update order sync status to FAILED
+    await order.update({
+      shopify_sync_status: "FAILED",
+      shopify_last_synced_at: new Date(),
+    });
+
+    throw err;
+  }
+}
+
+// =========================================================================
+// I. SYNC FULFILLMENT TO SHOPIFY (Dispatch → Shopify fulfillment)
+// =========================================================================
+
+/**
+ * Push fulfillment/tracking info to Shopify for a dispatched order.
+ * Only works if the order has a shopify_order_id.
+ *
+ * @param {string} orderId - Internal order UUID
+ * @param {Object} user - Authenticated user
+ * @returns {Promise<Object>} Fulfillment result
+ */
+async function syncFulfillmentToShopify(orderId, user) {
+  const order = await Order.findByPk(orderId);
+
+  if (!order) {
+    throw serviceError("Order not found", 404, "NOT_FOUND");
+  }
+
+  if (!order.shopify_order_id) {
+    throw serviceError(
+      `Order ${order.order_number} is not linked to Shopify. Sync the order first.`,
+      400,
+      "NOT_SYNCED"
+    );
+  }
+
+  if (order.status !== "DISPATCHED" && order.status !== "COMPLETED") {
+    throw serviceError(
+      `Order must be DISPATCHED or COMPLETED to sync fulfillment. Current: ${order.status}`,
+      400,
+      "INVALID_STATUS"
+    );
+  }
+
+  // Get tracking info from order
+  const dispatchData = order.dispatch_data || {};
+  const courier = dispatchData.courier || order.dispatch_courier || "Unknown";
+  const trackingNumber = dispatchData.trackingNumber || order.dispatch_tracking || "";
+
+  if (!trackingNumber) {
+    throw serviceError("No tracking number found on this order", 400, "NO_TRACKING");
+  }
+
+  // Create sync log
+  const syncLog = await ShopifySyncLog.create({
+    order_id: orderId,
+    shopify_order_id: order.shopify_order_id,
+    sync_type: "FULFILLMENT",
+    sync_direction: "LOCAL_TO_SHOPIFY",
+    status: "IN_PROGRESS",
+    initiated_by: user?.id || null,
+  });
+
+  try {
+    console.log(
+      `📦 Syncing fulfillment for ${order.order_number} → Shopify order ${order.shopify_order_id}...`
+    );
+
+    const result = await shopifyApi.createFulfillment(
+      order.shopify_order_id,
+      {
+        company: courier,
+        number: trackingNumber,
+        url: null, // No tracking URL for now
+      }
+    );
+
+    if (result.alreadyFulfilled) {
+      console.warn(`⚠️ Shopify order ${order.shopify_order_id} is already fulfilled`);
+
+      await syncLog.update({
+        status: "SUCCESS",
+        response_payload: { alreadyFulfilled: true },
+        completed_at: new Date(),
+      });
+
+      return {
+        success: true,
+        alreadyFulfilled: true,
+        message: "Shopify order was already fulfilled",
+      };
+    }
+
+    const fulfillment = result.fulfillment;
+
+    // Update sync status
+    await order.update({
+      shopify_sync_status: "SYNCED",
+      shopify_last_synced_at: new Date(),
+    });
+
+    // Log activity
+    await OrderActivity.create({
+      order_id: orderId,
+      action: "FULFILLMENT_SYNCED_TO_SHOPIFY",
+      description: `Fulfillment synced to Shopify — ${courier} / ${trackingNumber}`,
+      performed_by: user?.id || null,
+      metadata: {
+        shopifyFulfillmentId: fulfillment?.id,
+        courier,
+        trackingNumber,
+      },
+    });
+
+    await syncLog.update({
+      status: "SUCCESS",
+      response_payload: {
+        fulfillmentId: fulfillment?.id,
+        trackingCompany: courier,
+        trackingNumber,
+      },
+      completed_at: new Date(),
+    });
+
+    console.log(
+      `✅ Fulfillment synced for ${order.order_number} — ${courier} / ${trackingNumber}`
+    );
+
+    return {
+      success: true,
+      alreadyFulfilled: false,
+      fulfillmentId: fulfillment?.id,
+      courier,
+      trackingNumber,
+      syncedAt: new Date().toISOString(),
+    };
+  } catch (err) {
+    await syncLog.update({
+      status: "FAILED",
+      error_message: err.message,
+      error_details: { stack: err.stack, code: err.code },
+      completed_at: new Date(),
+    });
+
+    throw err;
+  }
+}
+
+// =========================================================================
 // Exports
 // =========================================================================
 
@@ -898,4 +1272,6 @@ module.exports = {
   importShopifyOrder,
   handleOrderWebhook,
   syncProducts,
+  syncOrderToShopify,      
+  syncFulfillmentToShopify,
 };

@@ -126,6 +126,38 @@ async function syncProducts(req, res, next) {
   }
 }
 
+// ─── POST /api/shopify/orders/:orderId/sync-to-shopify ────────────────
+// Push a manual internal order to Shopify
+
+async function syncToShopify(req, res, next) {
+  try {
+    const { orderId } = req.params;
+    console.log(`🔄 Syncing order ${orderId} to Shopify...`);
+
+    const result = await shopifyService.syncOrderToShopify(orderId, req.user);
+
+    res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ─── POST /api/shopify/orders/:orderId/sync-fulfillment ───────────────
+// Push fulfillment/tracking to Shopify for a dispatched order
+
+async function syncFulfillment(req, res, next) {
+  try {
+    const { orderId } = req.params;
+    console.log(`📦 Syncing fulfillment for order ${orderId} to Shopify...`);
+
+    const result = await shopifyService.syncFulfillmentToShopify(orderId, req.user);
+
+    res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   getSettings,
   testConnection,
@@ -134,4 +166,6 @@ module.exports = {
   importOrder,
   handleOrderCreateWebhook,
   syncProducts,
+  syncToShopify,      // ← NEW
+  syncFulfillment, 
 };
