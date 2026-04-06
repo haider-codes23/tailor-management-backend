@@ -225,6 +225,14 @@ module.exports = (sequelize) => {
         allowNull: true,
         comment: "{reason, cancelledBy, cancelledByName, cancelledAt}",
       },
+      // ── Dispatch & Completion (Phase 14) ────────────────────────────
+      dispatch_data: {
+        type: DataTypes.JSONB,
+        allowNull: true,
+        comment: "{courier, trackingNumber, dispatchDate, notes, dispatchedBy, dispatchedByName, dispatchedAt}",
+      },
+      completed_at: { type: DataTypes.DATE, allowNull: true },
+      completed_by: { type: DataTypes.UUID, allowNull: true },
     },
     {
       tableName: "orders",
