@@ -59,4 +59,18 @@ router.post(
   ctrl.importOrder
 );
 
+// ─── Phase 15: Outbound Sync ──────────────────────────────────────────
+
+router.post(
+  "/orders/:orderId/sync-to-shopify",
+  requirePermission("orders.edit"),
+  ctrl.syncToShopify
+);
+
+router.post(
+  "/orders/:orderId/sync-fulfillment",
+  requirePermission("orders.edit"),
+  ctrl.syncFulfillment
+);
+
 module.exports = router;
