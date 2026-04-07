@@ -29,7 +29,7 @@ function orderCreated(order, createdBy) {
   const orderNum = order.order_number || order.orderNumber || "New Order";
   const customer = order.customer_name || order.customerName || "Customer";
 
-  getNotificationService().notifyRoles("ADMIN", {
+  getNotificationService().notifyRoles(["ADMIN"], {
     type: NOTIFICATION_TYPES.ORDER_CREATED,
     title: "New Order Received",
     message: `${orderNum} created for ${customer}`,
