@@ -47,6 +47,9 @@ const ProductionAssignment = require("./ProductionAssignment")(sequelize);
 const QaReview = require("./QaReview")(sequelize);
 const ClientApproval = require("./ClientApproval")(sequelize);
 
+// ── Phase 16: Notifications ──────────────────────────────────────────
+const Notification = require("./Notification")(sequelize);
+
 const db = {
   sequelize,
   User,
@@ -70,6 +73,7 @@ const db = {
   ProductionAssignment,
   QaReview,
   ClientApproval,
+  Notification,
 };
 
 // ─── Set up associations ────────────────────────────────────────────────────

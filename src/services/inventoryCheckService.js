@@ -34,6 +34,8 @@ const {
   PacketItem,
 } = require("../models");
 
+const notify = require("./notificationTriggers");
+
 const {
   ORDER_ITEM_STATUS,
   SECTION_STATUS,
@@ -576,6 +578,12 @@ async function runInventoryCheck(orderItemId, data, user) {
 
     await t.commit();
 
+    // Notify purchaser if there are material shortages
+    if (failedSections.length > 0) {
+      const order = await Order.findByPk(item.order_id, { attributes: ["order_number"] });
+      notify.materialShortage(orderItemId, failedSections, order?.order_number);
+    }
+
     // Re-fetch the updated item with sections
     const updatedItem = await OrderItem.findByPk(orderItemId, {
       include: [{ model: OrderItemSection, as: "sections" }],
@@ -1063,6 +1071,12 @@ async function rerunSectionCheck(orderItemId, data, user) {
     }
 
     await t.commit();
+
+    // Notify purchaser if sections still have shortages
+    if (stillFailedSections.length > 0) {
+      const order = await Order.findByPk(item.order_id, { attributes: ["order_number"] });
+      notify.materialShortage(orderItemId, stillFailedSections, order?.order_number);
+    }
 
     // Re-fetch
     const updatedItem = await OrderItem.findByPk(orderItemId, {

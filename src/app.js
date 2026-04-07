@@ -148,6 +148,10 @@ const dispatchRoutes = require("./routes/dispatchRoutes");
 app.use("/api/dispatch", dispatchRoutes);
 
 
+// ── Phase 16: Notifications
+const notificationRoutes = require("./routes/notificationRoutes");
+app.use("/api/notifications", notificationRoutes);
+
 // ============================================================================
 // 404 HANDLER
 // ============================================================================

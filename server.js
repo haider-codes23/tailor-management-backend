@@ -4,7 +4,8 @@
  * This file:
  * 1. Loads environment variables
  * 2. Tests database connection
- * 3. Starts the Express server
+ * 3. Initializes Socket.IO for real-time notifications
+ * 4. Starts the HTTP server
  *
  * Kept separate from app.js so we can import app in tests
  * without actually starting the server.
@@ -20,9 +21,11 @@ origHttpsAgent.prototype.createConnection = function(options, callback) {
   return _origCreateConnection.call(this, options, callback);
 };
 
+const http = require("http");
 const app = require("./src/app");
 const sequelize = require("./src/config/database");
 const env = require("./src/config/environment");
+const { initSocket } = require("./src/config/socketManager");
 
 async function startServer() {
   try {
@@ -49,9 +52,15 @@ async function startServer() {
     // }
 
     // ========================================================================
-    // 3. Start Express server
+    // 3. Create HTTP server and attach Socket.IO
     // ========================================================================
-    app.listen(env.port, () => {
+    const httpServer = http.createServer(app);
+    initSocket(httpServer);
+
+    // ========================================================================
+    // 4. Start server
+    // ========================================================================
+    httpServer.listen(env.port, () => {
       console.log(`\n🚀 Server running on http://localhost:${env.port}`);
       console.log(`   Environment: ${env.nodeEnv}`);
       console.log(`   Health check: http://localhost:${env.port}/api/health`);

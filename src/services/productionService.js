@@ -26,6 +26,8 @@ const {
   ORDER_STATUS_VALUES,
 } = require("../constants/order");
 
+const notify = require("./notificationTriggers");
+
 // ── Production task statuses (mirrors frontend constants) ─────────────
 const TASK_STATUS = {
   PENDING: "PENDING",
@@ -241,6 +243,8 @@ async function assignProductionHead(orderItemId, { assignedBy }) {
     assigned_by_name: assigner?.name || "System",
   });
 
+  notify.productionAssigned(assignment, item);
+
   await OrderActivity.log({
     orderId: item.order_id,
     orderItemId,
@@ -250,6 +254,8 @@ async function assignProductionHead(orderItemId, { assignedBy }) {
     userName: assigner?.name || "System",
     details: { productionHeadId: assignedHead.id },
   });
+
+
 
   // Next head after this assignment
   const nextNextIndex = (roundRobinIndex + 1) % heads.length;
@@ -505,6 +511,9 @@ async function createSectionTasks(orderItemId, sectionName, { tasks, notes, user
 
     createdTasks.push(serializeTask(task));
   }
+
+  // Notify assigned workers
+  createdTasks.forEach((t) => notify.taskAssigned(t));
 
   return {
     tasks: createdTasks,
@@ -878,6 +887,8 @@ async function sendSectionToQA(orderItemId, sectionName, { userId }) {
     userName: user?.name || "Production Head",
     details: { sectionName, allInQA },
   });
+
+  notify.sectionSentToQA(orderItemId, sectionName, item.order_id);
 
   return {
     message: `${sectionName} sent to QA${allInQA ? " - All sections now in QA" : ""}`,
