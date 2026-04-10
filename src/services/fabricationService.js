@@ -294,7 +294,11 @@ async function createCustomBOM(itemId, data, user) {
         updatedBy: createdBy,
     };
 
-    await item.update({ custom_bom: customBOM });
+    // Assign + mark dirty + save, mirroring the addBOMItem pattern so we're
+    // fully safe against Sequelize's JSONB reference-equality check.
+    item.custom_bom = customBOM;
+    item.changed("custom_bom", true);
+    await item.save();
 
     // Log activity
     await OrderActivity.log({
@@ -306,9 +310,9 @@ async function createCustomBOM(itemId, data, user) {
         userName: user?.name || "System",
     });
 
-    // Re-fetch to get fresh data
+    // Re-fetch to return fresh data from DB
     const updated = await OrderItem.findByPk(itemId);
-    return serializeOrderItem(item);
+    return serializeOrderItem(updated);
 }
 
 // =========================================================================
@@ -348,11 +352,13 @@ async function updateCustomBOM(itemId, data, user) {
         updatedBy,
     };
 
-    await item.update({ custom_bom: updatedBOM });
+    item.custom_bom = updatedBOM;
+    item.changed("custom_bom", true);
+    await item.save();
 
-    // Re-fetch to get fresh data
+    // Re-fetch to return fresh data from DB
     const updated = await OrderItem.findByPk(itemId);
-    return serializeOrderItem(item);
+    return serializeOrderItem(updated);
 }
 
 // =========================================================================
@@ -377,25 +383,7 @@ async function addBOMItem(itemId, piece, data, user) {
     const now = new Date().toISOString();
     const addedBy = data.addedBy || user?.name || "System";
 
-    // Auto-initialize BOM if it doesn't exist
-    let customBOM = item.custom_bom;
-    if (!customBOM) {
-        const pieces = [
-            ...(item.included_items || []).map((i) => i.piece),
-            ...(item.selected_add_ons || []).map((a) => a.piece),
-        ];
-        customBOM = {
-            id: `custom-bom-${itemId}`,
-            orderItemId: itemId,
-            pieces,
-            items: [],
-            createdAt: now,
-            createdBy: addedBy,
-            updatedAt: now,
-            updatedBy: addedBy,
-        };
-    }
-
+    // Build the new BOM row first
     const newBOMItem = {
         id: generateBomItemId(),
         piece,
@@ -408,13 +396,49 @@ async function addBOMItem(itemId, piece, data, user) {
         createdAt: now,
     };
 
-    customBOM.items.push(newBOMItem);
-    customBOM.updatedAt = now;
-    customBOM.updatedBy = addedBy;
+    // CRITICAL: build a BRAND NEW customBOM object every time.
+    // In-place mutations on JSONB fields (e.g. item.custom_bom.items.push(...))
+    // are silently ignored by Sequelize's dirty-tracking because it compares
+    // by reference. If we hand back the same object reference, the UPDATE
+    // statement will omit the column entirely and the write is lost.
+    // Every field that Sequelize needs to persist must sit on a new reference.
+    let customBOM;
+    if (!item.custom_bom) {
+        // First-time init: derive pieces from included_items + selected_add_ons
+        const pieces = [
+            ...(item.included_items || []).map((i) => i.piece),
+            ...(item.selected_add_ons || []).map((a) => a.piece),
+        ];
+        customBOM = {
+            id: `custom-bom-${itemId}`,
+            orderItemId: itemId,
+            pieces,
+            items: [newBOMItem],
+            createdAt: now,
+            createdBy: addedBy,
+            updatedAt: now,
+            updatedBy: addedBy,
+        };
+    } else {
+        // Append: spread the existing BOM into a new object and build a new
+        // items array so the reference is different from item.custom_bom.
+        customBOM = {
+            ...item.custom_bom,
+            items: [...(item.custom_bom.items || []), newBOMItem],
+            updatedAt: now,
+            updatedBy: addedBy,
+        };
+    }
 
-    await item.update({ custom_bom: customBOM });
+    // Assign to the instance, explicitly mark dirty, and save.
+    // The changed(...) call is belt-and-suspenders — even if something upstream
+    // somehow passes the same reference, this forces Sequelize to include the
+    // column in the UPDATE statement.
+    item.custom_bom = customBOM;
+    item.changed("custom_bom", true);
+    await item.save();
 
-    // Re-fetch to get fresh data
+    // Re-fetch to return fresh data from DB
     const updated = await OrderItem.findByPk(itemId);
     return {
         item: serializeOrderItem(updated),
@@ -522,7 +546,9 @@ async function deleteBOMItem(itemId, piece, bomItemId) {
         updatedAt: now,
     };
 
-    await item.update({ custom_bom: updatedBOM });
+    item.custom_bom = updatedBOM;
+    item.changed("custom_bom", true);
+    await item.save();
 
     // Re-fetch to get fresh data
     const updated = await OrderItem.findByPk(itemId);

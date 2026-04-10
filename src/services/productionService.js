@@ -95,7 +95,7 @@ let roundRobinIndex = -1;
 async function getProductionHeads() {
   return User.findAll({
     where: {
-      role: { [Op.in]: ["PRODUCTION_HEAD", "ADMIN"] },
+      role: { [Op.in]: ["PRODUCTION_HEAD"] },
       is_active: true,
     },
     attributes: ["id", "name", "email"],
@@ -359,10 +359,19 @@ async function getOrderItemDetails(orderItemId) {
   const item = await OrderItem.findByPk(orderItemId);
   if (!item) throw serviceError("Order item not found", 404, "NOT_FOUND");
 
- const order = await Order.findByPk(item.order_id, {
+    const order = await Order.findByPk(item.order_id, {
     attributes: [
-      "id", "order_number", "customer_name", "fwd_date",
-      "urgent", "notes", "created_at",
+      "id",
+      "order_number",
+      "customer_name",
+      "destination",
+      "client_height",
+      "shipping_address",
+      "fwd_date",
+      "production_shipping_date",
+      "urgent",
+      "notes",
+      "created_at",
     ],
   });
 
@@ -370,6 +379,7 @@ async function getOrderItemDetails(orderItemId) {
     where: { order_item_id: orderItemId },
   });
 
+  // ── Sections from JSONB ────────────────────────────────────────────
   const ss = item.section_statuses || {};
   const sections = Object.entries(ss).map(([key, value]) => ({
     name: capitalize(key),
@@ -377,28 +387,83 @@ async function getOrderItemDetails(orderItemId) {
     ...value,
   }));
 
+  // ── Order form snapshot is the source of truth for approved data ──
+  // (captured at form generation and preserved through the workflow)
+  const form = item.order_form || {};
+
+  // Size classification
+  const sizeType = (item.size_type || "").toUpperCase();
+  const isCustomSize = sizeType === "CUSTOM";
+
+  // Customizations — always return objects so FE can render type/details/image
+  const style = item.style || form.style || { type: "original", details: null, image: null };
+  const color = item.color || form.color || { type: "original", details: null, image: null };
+  const fabric = item.fabric || form.fabric || { type: "original", details: null, image: null };
+
+  // Measurements — prefer the snapshot on the form, fall back to the live JSONB
+  const standardSizeChart =
+    form.standardSizeChart && Object.keys(form.standardSizeChart).length > 0
+      ? form.standardSizeChart
+      : null;
+  const heightChart =
+    form.heightChart && Object.keys(form.heightChart).length > 0 ? form.heightChart : null;
+  const customMeasurements =
+    isCustomSize && item.measurements && Object.keys(item.measurements).length > 0
+      ? item.measurements
+      : form.measurements && Object.keys(form.measurements).length > 0
+        ? form.measurements
+        : null;
+
   return {
     id: item.id,
     orderId: item.order_id,
     orderNumber: order?.order_number || "",
+    status: item.status,
+
+    // Product
     productName: item.product_name,
     productImage: item.product_image,
     sku: item.product_sku,
+    quantity: item.quantity,
+
+    // Client & team
     customerName: order?.customer_name || "",
-    customerHeight: null,
-    isCustomSize: item.is_custom_size,
-    standardSize: item.standard_size,
-    measurements: item.measurements,
-    color: item.color,
-    fabric: item.fabric,
-    modesty: item.modesty,
-    styleSketch: item.style_sketch,
+    destination: order?.destination || form.destination || null,
+    customerHeight: order?.client_height || null,
+    modesty: item.modesty || form.modesty || null,
+    shippingAddress: order?.shipping_address || null,
+
+    // Dates
     fwdDate: order?.fwd_date || null,
-    productionShipDate: null,
+    productionShipDate: order?.production_shipping_date || null,
     orderDate: order?.created_at || null,
+    urgent: order?.urgent || null,
+
+    // Size & measurements
+    sizeType: isCustomSize ? "Custom" : "Standard",
+    isCustomSize,
+    size: item.size || null,
+    standardSizeChart, // object keyed by measurement name -> inches, or null
+    heightChart,       // same shape, or null
+    measurements: customMeasurements, // for custom-size items
+
+    // Customizations — full objects (type, details, image)
+    style,
+    color,
+    fabric,
+
+    // What's included / add-ons — keep full objects so FE can show price
+    includedItems: item.included_items || [],
+    selectedAddOns: item.selected_add_ons || [],
+
+    // Sections (workflow state)
     sections,
-    addons: (item.selected_add_ons || []).map((a) => typeof a === "object" ? a.piece || a.name || "" : a),
-    notes: item.notes || order?.notes || "",
+
+    // Sketch & notes
+    sketchImage: form.sketchImage || null,
+    notes: item.notes || form.notes || order?.notes || "",
+
+    // Assignment
     assignment: assignment
       ? {
           productionHeadId: assignment.production_head_id,
@@ -407,10 +472,8 @@ async function getOrderItemDetails(orderItemId) {
           productionStartedAt: assignment.production_started_at,
         }
       : null,
-    status: item.status,
   };
 }
-
 // =========================================================================
 // 6. GET WORKERS
 // =========================================================================
