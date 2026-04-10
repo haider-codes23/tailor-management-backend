@@ -104,35 +104,7 @@ async function completePacket(req, res, next) {
   }
 }
 
-// ─── POST /api/order-items/:id/packet/approve ─────────────────────────
-async function approvePacket(req, res, next) {
-  try {
-    const result = await packetService.approvePacket(req.params.id, req.body);
-    return res.json({
-      success: true,
-      data: { packet: result.packet, nextStatus: result.nextStatus },
-      message: result.message,
-    });
-  } catch (err) {
-    if (err.status) {
-      return res.status(err.status).json({ error: err.code, message: err.message });
-    }
-    next(err);
-  }
-}
 
-// ─── POST /api/order-items/:id/packet/reject ──────────────────────────
-async function rejectPacket(req, res, next) {
-  try {
-    const result = await packetService.rejectPacket(req.params.id, req.body);
-    return res.json({ success: true, data: result.packet, message: result.message });
-  } catch (err) {
-    if (err.status) {
-      return res.status(err.status).json({ error: err.code, message: err.message });
-    }
-    next(err);
-  }
-}
 
 module.exports = {
   getPacket,
@@ -143,6 +115,4 @@ module.exports = {
   startPacket,
   pickItem,
   completePacket,
-  approvePacket,
-  rejectPacket,
 };

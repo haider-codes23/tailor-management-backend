@@ -295,54 +295,6 @@ function packetAssigned(packet) {
     .catch(err => console.error("❌ Packet notification failed:", err.message));
 }
 
-/**
- * Packet completed (picking done) → notify PRODUCTION_HEAD to verify
- */
-function packetCompleted(packet) {
-  getNotificationService().notifyRole("ADMIN", {
-    type: NOTIFICATION_TYPES.PACKET_COMPLETED,
-    title: "Packet Ready for Verification",
-    message: `${packet.assigned_to_name || "Packet Creator"} completed picking - verify packet`,
-    referenceType: REFERENCE_TYPES.PACKET,
-    referenceId: packet.id,
-    actionUrl: `/orders/${packet.order_id}/items/${packet.order_item_id}`,
-    metadata: { packetId: packet.id, completedBy: packet.assigned_to_name },
-  });
-}
-
-/**
- * Packet approved → notify the packet creator
- */
-function packetApproved(packet) {
-  if (!packet.assigned_to) return;
-
-  getNotificationService().notifyUser(packet.assigned_to, {
-    type: NOTIFICATION_TYPES.PACKET_COMPLETED,
-    title: "Packet Approved",
-    message: `Your packet has been approved by ${packet.checked_by_name || "Production Head"}`,
-    referenceType: REFERENCE_TYPES.PACKET,
-    referenceId: packet.id,
-    actionUrl: `/orders/${packet.order_id}/items/${packet.order_item_id}`,
-    metadata: { packetId: packet.id },
-  });
-}
-
-/**
- * Packet rejected → notify the packet creator to redo
- */
-function packetRejected(packet, reason) {
-  if (!packet.assigned_to) return;
-
-  getNotificationService().notifyUser(packet.assigned_to, {
-    type: NOTIFICATION_TYPES.PACKET_REJECTED,
-    title: "Packet Rejected",
-    message: `Packet rejected - ${reason || "correction needed"}`,
-    referenceType: REFERENCE_TYPES.PACKET,
-    referenceId: packet.id,
-    actionUrl: `/orders/${packet.order_id}/items/${packet.order_item_id}`,
-    metadata: { packetId: packet.id, reason },
-  });
-}
 
 // =========================================================================
 // DYEING
@@ -525,9 +477,6 @@ module.exports = {
   orderDispatched,
   materialShortage,
   packetAssigned,
-  packetCompleted,
-  packetApproved,
-  packetRejected,
   dyeingAccepted,
   dyeingStarted,
   dyeingCompleted,
