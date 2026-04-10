@@ -15,6 +15,10 @@ const {
   ORDER_ITEM_STATUS_VALUES,
 } = require("../constants/order");
 
+const notify = require("./notificationTriggers");
+
+const shopify = require("./shopifyApiClient");
+
 function serviceError(msg, status, code) {
   const err = new Error(msg);
   err.statusCode = status;
@@ -28,6 +32,31 @@ function safeUpdateOrderStatus(order, newStatus) {
 
 function safeUpdateOrderItemStatus(item, newStatus) {
   if (ORDER_ITEM_STATUS_VALUES.includes(newStatus)) item.status = newStatus;
+}
+
+/**
+ * Build a tracking URL based on courier name.
+ * Shopify uses this to make the tracking number clickable for customers.
+ */
+function buildTrackingUrl(courier, trackingNumber) {
+  if (!courier || !trackingNumber) return null;
+  const c = courier.toLowerCase();
+  if (c.includes("tcs")) {
+    return `https://www.tcsexpress.com/track/${trackingNumber}`;
+  }
+  if (c.includes("leopard")) {
+    return `https://www.leopardscourier.com/tracking?id=${trackingNumber}`;
+  }
+  if (c.includes("mp") || c.includes("m&p")) {
+    return `https://mulphilog.com/tracking/${trackingNumber}`;
+  }
+  if (c.includes("dhl")) {
+    return `https://www.dhl.com/en/express/tracking.html?AWB=${trackingNumber}`;
+  }
+  if (c.includes("fedex")) {
+    return `https://www.fedex.com/fedextrack/?trknbr=${trackingNumber}`;
+  }
+  return null;
 }
 
 module.exports = function createDispatchService(db) {
@@ -239,6 +268,90 @@ module.exports = function createDispatchService(db) {
         },
         { transaction: t }
       );
+
+      notify.orderDispatched(order, courier, trackingNumber);
+
+      // ── Push fulfillment to Shopify if this order is synced ──
+      // Fire-and-forget AFTER the transaction commits — Shopify failures
+      // should NEVER break the internal dispatch flow.
+      if (order.shopify_order_id) {
+        setImmediate(async () => {
+          try {
+            console.log(
+              `📦 Pushing fulfillment to Shopify for order ${order.order_number} (Shopify ID: ${order.shopify_order_id})`
+            );
+
+            const trackingUrl = buildTrackingUrl(courier, trackingNumber);
+            const result = await shopify.createFulfillment(
+              order.shopify_order_id,
+              {
+                company: courier,
+                number: trackingNumber,
+                url: trackingUrl,
+              }
+            );
+
+            if (result.alreadyFulfilled) {
+              console.log(
+                `ℹ️ Shopify order ${order.shopify_order_id} was already fulfilled`
+              );
+            } else {
+              console.log(
+                `✅ Shopify fulfillment created for order ${order.order_number}`
+              );
+
+              await OrderActivity.create({
+                order_id: orderId,
+                action: "SHOPIFY_FULFILLMENT_CREATED",
+                description: `Shopify fulfillment pushed — ${courier} ${trackingNumber}`,
+                performed_by: dispatchedBy,
+                metadata: {
+                  shopifyOrderId: order.shopify_order_id,
+                  fulfillmentId: result.fulfillment?.id,
+                },
+              });
+
+              // Update the shopify_last_synced_at timestamp
+              await Order.update(
+                {
+                  shopify_last_synced_at: new Date(),
+                  shopify_sync_status: "SYNCED",
+                },
+                { where: { id: orderId } }
+              );
+            }
+          } catch (err) {
+            console.error(
+              `❌ Failed to push Shopify fulfillment for ${order.order_number}:`,
+              err.message
+            );
+
+            try {
+              await OrderActivity.create({
+                order_id: orderId,
+                action: "SHOPIFY_FULFILLMENT_FAILED",
+                description: `Failed to push fulfillment to Shopify: ${err.message}`,
+                performed_by: dispatchedBy,
+                metadata: {
+                  error: err.message,
+                  shopifyErrors: err.shopifyErrors,
+                },
+              });
+
+              await Order.update(
+                { shopify_sync_status: "SYNC_FAILED" },
+                { where: { id: orderId } }
+              );
+            } catch (logErr) {
+              console.error("Failed to log Shopify failure:", logErr.message);
+            }
+          }
+        });
+      } else {
+        console.log(
+          `ℹ️ Order ${order.order_number} not synced to Shopify — skipping fulfillment push`
+        );
+      }
 
       return buildOrderResponse(
         await Order.findByPk(orderId, { transaction: t })

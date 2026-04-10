@@ -39,6 +39,8 @@ const {
   SIZE_TYPE,
 } = require("../constants/order");
 
+const notify = require("./notificationTriggers");
+
 // =========================================================================
 // Helpers
 // =========================================================================
@@ -394,6 +396,9 @@ async function createOrder(data, user) {
 
     await t.commit();
 
+    // Fire-and-forget notification
+    notify.orderCreated(order, user);
+
     // 8. Re-fetch the complete order with all includes
     const fullOrder = await getOrderById(order.id);
     fullOrder.ready_stock_result = rsResult;
@@ -544,6 +549,9 @@ async function cancelOrder(orderId, user) {
     });
 
     await t.commit();
+
+    notify.orderCancelled(order, user);
+
     return getOrderById(order.id);
   } catch (err) {
     await t.rollback();

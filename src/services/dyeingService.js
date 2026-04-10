@@ -28,6 +28,8 @@ const {
   ORDER_STATUS_VALUES,
 } = require("../constants/order");
 
+
+const notify = require("./notificationTriggers");
 // ─── Helpers ──────────────────────────────────────────────────────────
 
 function serviceError(message, status, code) {
@@ -540,6 +542,11 @@ async function acceptSections(orderItemId, { userId, sections }) {
   });
 
   const reloaded = await loadOrderItem(orderItemId);
+
+  // Notify admin that dyeing was claimed
+  const order = await Order.findByPk(item.order_id, { attributes: ["order_number"] });
+  notify.dyeingAccepted(item, user, sections, order?.order_number);
+
   return { orderItem: serializeOrderItem(reloaded) };
 }
 
@@ -597,6 +604,11 @@ async function startDyeing(orderItemId, { userId, sections }) {
   });
 
   const reloaded = await loadOrderItem(orderItemId);
+
+  // Notify admin that dyeing started
+  const order = await Order.findByPk(item.order_id, { attributes: ["order_number"] });
+  notify.dyeingStarted(item, user, sections, order?.order_number);
+
   return { orderItem: serializeOrderItem(reloaded) };
 }
 
@@ -664,6 +676,11 @@ async function completeDyeing(orderItemId, { userId, sections }) {
   });
 
   const reloaded = await loadOrderItem(orderItemId);
+
+   // Notify admin that dyeing completed
+  const order = await Order.findByPk(item.order_id, { attributes: ["order_number"] });
+  notify.dyeingCompleted(item, user, sections, order?.order_number, allReady);
+
   return { orderItem: serializeOrderItem(reloaded), allSectionsReady: allReady };
 }
 
@@ -743,6 +760,7 @@ async function rejectSections(orderItemId, { userId, sections, reasonCode, notes
     rejectedSections.push({
       name: sectionName,
       round: (sectionData.dyeingRound || 1) + 1,
+      previousFabricationUserId: prevFabUserId,
       previousFabricationUser: prevFabUserName,
     });
 
@@ -858,6 +876,11 @@ async function rejectSections(orderItemId, { userId, sections, reasonCode, notes
   }
 
   const reloaded = await loadOrderItem(orderItemId);
+
+  // Notify admin + original packet creators that sections are coming back
+  const order = await Order.findByPk(item.order_id, { attributes: ["order_number"] });
+  notify.dyeingRejected(item, user, rejectedSections, rejectionLabel, order?.order_number);
+
   return {
     orderItem: serializeOrderItem(reloaded),
     rejectedSections,

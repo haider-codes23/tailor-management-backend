@@ -14,6 +14,8 @@ const {
   ORDER_STATUS_VALUES,
 } = require("../constants/order");
 
+const notify = require("./notificationTriggers");
+
 function serviceError(msg, status, code) {
   const err = new Error(msg);
   err.statusCode = status;
@@ -418,6 +420,8 @@ module.exports = function createQaService(db) {
         { where: { order_item_id: orderItemId, piece: { [Op.iLike]: sectionKey } }, transaction: t }
       );
 
+      notify.qaRejected(orderItemId, sectionName, reasonCode);
+
       item.changed("section_statuses", true);
       await item.update({ section_statuses: { ...ss }, status: item.status }, { transaction: t });
 
@@ -557,6 +561,13 @@ module.exports = function createQaService(db) {
         metadata: { youtubeUrl, fileName: originalFileName },
       }, { transaction: t });
 
+      // Notify sales that the re-video is ready
+      const order = await Order.findByPk(item.order_id, {
+        attributes: ["order_number"],
+        transaction: t,
+      });
+      notify.reVideoUploaded(item.order_id, order?.order_number);
+
       return {
         orderItemId,
         videoData,
@@ -607,6 +618,8 @@ module.exports = function createQaService(db) {
         description: `Order sent to Sales for client approval`,
         performed_by: sentBy,
       }, { transaction: t });
+
+      notify.sentToSales(orderId, order.order_number);
 
       return {
         orderId,

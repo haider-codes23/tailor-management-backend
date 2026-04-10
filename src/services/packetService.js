@@ -27,6 +27,8 @@ const {
   InventoryItem,
 } = require("../models");
 
+const notify = require("./notificationTriggers");
+
 const {
   ORDER_ITEM_STATUS,
   SECTION_STATUS,
@@ -328,6 +330,8 @@ async function assignPacket(orderItemId, { assignToUserId, assignedByUserId }) {
     timeline: newTimeline,
   });
 
+  notify.packetAssigned({ ...packet.toJSON(), assigned_to: assignToUserId });
+
   return {
     packet: serializePacket(packet),
     message: `Packet assigned to ${assignee.name}`,
@@ -515,6 +519,8 @@ async function completePacket(orderItemId, { userId, notes }) {
 
   const reloaded = await loadPacketWithItems({ id: packet.id });
 
+  notify.packetCompleted(packet);
+
   return {
     packet: serializePacket(reloaded),
     message: "Packet completed. Ready for verification.",
@@ -581,6 +587,8 @@ async function approvePacket(orderItemId, { userId, isReadyStock, notes }) {
         sectionStatuses[key] = {
           ...sectionStatuses[key],
           status: SECTION_STATUS.READY_FOR_DYEING,
+          packetCreatedBy: packet.assigned_to,
+          packetCreatedByName: packet.assigned_to_name,
           updatedAt: now.toISOString(),
         };
       }
@@ -631,6 +639,14 @@ async function approvePacket(orderItemId, { userId, isReadyStock, notes }) {
   }
 
   const reloaded = await loadPacketWithItems({ id: packet.id });
+
+  notify.packetApproved({ ...packet.toJSON() });
+
+  if (!isReadyStock && orderItem) {
+    const order = await Order.findByPk(orderItem.order_id, { attributes: ["order_number"] });
+    const sectionsForDyeing = packet.current_round_sections || packet.sections_included || [];
+    notify.dyeingRequired(orderItem, sectionsForDyeing, order?.order_number);
+  }
 
   return {
     packet: serializePacket(reloaded),
@@ -782,6 +798,8 @@ async function rejectPacket(orderItemId, { userId, reasonCode, reason, notes }) 
   }
 
   const reloaded = await loadPacketWithItems({ id: packet.id });
+
+  notify.packetRejected({ ...packet.toJSON() }, reason);
 
   return {
     packet: serializePacket(reloaded),

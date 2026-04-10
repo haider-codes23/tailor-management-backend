@@ -18,6 +18,8 @@ const {
   SECTION_STATUS,
 } = require("../constants/order");
 
+const notify = require("./notificationTriggers");
+
 function serviceError(msg, status, code) {
   const err = new Error(msg);
   err.statusCode = status;
@@ -289,6 +291,8 @@ module.exports = function createSalesApprovalService(db) {
         performed_by: approvedBy,
       }, { transaction: t });
 
+      notify.clientApproved(orderId, order.order_number);
+
       return {
         orderId,
         orderNumber: order.order_number,
@@ -358,6 +362,8 @@ module.exports = function createSalesApprovalService(db) {
         performed_by: requestedBy,
         metadata: { orderItemId, sections: sectionNames },
       }, { transaction: t });
+
+      notify.reVideoRequested(orderId, order.order_number);
 
       return {
         orderId,
@@ -452,6 +458,8 @@ module.exports = function createSalesApprovalService(db) {
         metadata: { sections, updatedItems },
       }, { transaction: t });
 
+      notify.alterationRequested(orderId, order.order_number, sections);
+      
       return {
         orderId,
         orderNumber: order.order_number,
@@ -698,6 +706,8 @@ module.exports = function createSalesApprovalService(db) {
         description: `Payments verified and approved (PKR ${totalPaid} / PKR ${totalAmount}) - Ready for dispatch`,
         performed_by: approvedBy,
       }, { transaction: t });
+
+      notify.clientApproved(orderId, order.order_number);
 
       return {
         orderId,
