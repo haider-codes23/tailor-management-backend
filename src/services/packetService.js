@@ -458,160 +458,163 @@ async function completePacket(orderItemId, { userId, notes }) {
     );
   }
 
+  // Verify all items are picked before allowing completion
+  const unpickedItems = (packet.items || []).filter((i) => !i.is_picked);
+  if (unpickedItems.length > 0) {
+    throw serviceError(
+      `${unpickedItems.length} items not yet picked. Please pick all items before completing.`,
+      400,
+      "INCOMPLETE_PICK_LIST"
+    );
+  }
+
   const user = await User.findByPk(userId);
   const now = new Date();
 
+  // =====================================================================
+  // Statuses that must NOT be overwritten — already beyond packet stage
+  // =====================================================================
+  const protectedSectionStatuses = [
+    SECTION_STATUS.READY_FOR_DYEING,
+    SECTION_STATUS.DYEING_ACCEPTED,
+    SECTION_STATUS.DYEING_IN_PROGRESS,
+    SECTION_STATUS.DYEING_COMPLETED,
+    SECTION_STATUS.DYEING_REJECTED,
+    SECTION_STATUS.READY_FOR_PRODUCTION,
+    SECTION_STATUS.IN_PRODUCTION,
+    SECTION_STATUS.PRODUCTION_COMPLETED,
+    SECTION_STATUS.QA_PENDING,
+    SECTION_STATUS.QA_APPROVED,
+    SECTION_STATUS.QA_REJECTED,
+    SECTION_STATUS.READY_FOR_CLIENT_APPROVAL,
+    SECTION_STATUS.AWAITING_CLIENT_APPROVAL,
+    SECTION_STATUS.CLIENT_APPROVED,
+    SECTION_STATUS.COMPLETED,
+  ];
+
+  // =====================================================================
+  // Timeline + packet record
+  // =====================================================================
   const newTimeline = [...(packet.timeline || [])];
   newTimeline.push({
     id: `timeline-${Date.now()}`,
-    action: "Packet completed",
+    action: "Packet completed — sections sent to dyeing",
     user: user?.name || "Packet Creator",
     timestamp: now.toISOString(),
     details: notes || "",
   });
 
+  // Packet goes straight to APPROVED (fabrication self-completes, no admin step)
   await packet.update({
-    status: PACKET_STATUS.COMPLETED,
+    status: PACKET_STATUS.APPROVED,
     completed_at: now,
+    checked_by: userId,
+    checked_by_name: user?.name || "Packet Creator",
+    checked_at: now,
+    check_result: "AUTO_APPROVED",
     notes: notes || packet.notes,
     timeline: newTimeline,
   });
 
-  // Update order item status to PACKET_CHECK
+  // =====================================================================
+  // Update order item + sections — port the sophisticated logic from
+  // the old approvePacket path (smart nextStatus, protect advanced sections)
+  // =====================================================================
   const orderItem = await OrderItem.findByPk(orderItemId);
+  let nextStatus = ORDER_ITEM_STATUS.READY_FOR_DYEING;
+  let sectionsForDyeing = [];
+
   if (orderItem) {
-    // Check if partial — only update sections that are in this round
     const sectionStatuses = { ...(orderItem.section_statuses || {}) };
     const sectionsToUpdate = packet.current_round_sections || packet.sections_included || [];
 
+    // Update section_statuses JSONB — only for current-round sections
+    // and only if they are NOT already in a protected status
     sectionsToUpdate.forEach((section) => {
       const key = section.toLowerCase();
       if (sectionStatuses[key]) {
-        sectionStatuses[key] = {
-          ...sectionStatuses[key],
-          status: SECTION_STATUS.PACKET_CREATED,
-          updatedAt: now.toISOString(),
-        };
+        const currentStatus = sectionStatuses[key].status;
+        if (!protectedSectionStatuses.includes(currentStatus)) {
+          sectionStatuses[key] = {
+            ...sectionStatuses[key],
+            status: SECTION_STATUS.READY_FOR_DYEING,
+            packetCreatedBy: packet.assigned_to,
+            packetCreatedByName: packet.assigned_to_name,
+            updatedAt: now.toISOString(),
+          };
+          sectionsForDyeing.push(section);
+          console.log(`[completePacket] ${key} → READY_FOR_DYEING`);
+        } else {
+          console.log(
+            `[completePacket] Skipped ${key} — already in protected status: ${currentStatus}`
+          );
+        }
       }
     });
 
+    // Determine the order item's overall next status by looking at ALL sections
+    const allSectionStatuses = Object.values(sectionStatuses);
+
+    const hasQAOrBeyond = allSectionStatuses.some((s) =>
+      [
+        SECTION_STATUS.QA_PENDING,
+        SECTION_STATUS.QA_APPROVED,
+        SECTION_STATUS.QA_REJECTED,
+        SECTION_STATUS.PRODUCTION_COMPLETED,
+      ].includes(s.status)
+    );
+    const hasInProduction = allSectionStatuses.some((s) =>
+      [SECTION_STATUS.IN_PRODUCTION, SECTION_STATUS.READY_FOR_PRODUCTION].includes(s.status)
+    );
+    const hasDyeingCompleted = allSectionStatuses.some(
+      (s) => s.status === SECTION_STATUS.DYEING_COMPLETED
+    );
+    const hasInDyeing = allSectionStatuses.some((s) =>
+      [SECTION_STATUS.DYEING_ACCEPTED, SECTION_STATUS.DYEING_IN_PROGRESS].includes(s.status)
+    );
+    const hasReadyForDyeing = allSectionStatuses.some(
+      (s) => s.status === SECTION_STATUS.READY_FOR_DYEING
+    );
+    const hasPending = (packet.sections_pending || []).length > 0;
+
+    if (hasPending) {
+      // Partial — some sections still awaiting material
+      if (hasQAOrBeyond || hasInProduction) {
+        nextStatus = orderItem.status || ORDER_ITEM_STATUS.PARTIAL_IN_PRODUCTION;
+      } else if (hasInDyeing || hasDyeingCompleted) {
+        nextStatus = ORDER_ITEM_STATUS.PARTIALLY_IN_DYEING;
+      } else {
+        nextStatus = ORDER_ITEM_STATUS.PARTIAL_CREATE_PACKET;
+      }
+    } else {
+      // All sections accounted for
+      if (hasQAOrBeyond || hasInProduction) {
+        nextStatus = orderItem.status || ORDER_ITEM_STATUS.PARTIAL_IN_PRODUCTION;
+      } else if (hasDyeingCompleted && !hasReadyForDyeing && !hasInDyeing) {
+        nextStatus = ORDER_ITEM_STATUS.DYEING_COMPLETED;
+      } else if (hasInDyeing || hasDyeingCompleted) {
+        nextStatus = ORDER_ITEM_STATUS.PARTIALLY_IN_DYEING;
+      } else {
+        nextStatus = ORDER_ITEM_STATUS.READY_FOR_DYEING;
+      }
+    }
+
     await orderItem.update({
-      status: ORDER_ITEM_STATUS.PACKET_CHECK,
+      status: nextStatus,
       section_statuses: sectionStatuses,
     });
 
     // Update parent order
     await Order.update(
-      { status: ORDER_ITEM_STATUS.PACKET_CHECK },
+      { status: nextStatus, updated_at: now },
       { where: { id: orderItem.order_id } }
     );
 
-    // Log activity
-    await OrderActivity.log({
-      orderId: orderItem.order_id,
-      orderItemId,
-      action: `Packet completed by ${user?.name || "Packet Creator"}. Ready for verification.`,
-      actionType: ACTIVITY_ACTION_TYPE.STATUS_CHANGE,
-      userId: userId || null,
-      userName: user?.name || "Packet Creator",
-    });
-  }
-
-  const reloaded = await loadPacketWithItems({ id: packet.id });
-
-  notify.packetCompleted(packet);
-
-  return {
-    packet: serializePacket(reloaded),
-    message: "Packet completed. Ready for verification.",
-  };
-}
-
-// =========================================================================
-// 9. APPROVE PACKET
-// =========================================================================
-
-async function approvePacket(orderItemId, { userId, isReadyStock, notes }) {
-  const packet = await loadPacketWithItems({ order_item_id: orderItemId });
-  if (!packet) {
-    throw serviceError(`No packet found for order item ${orderItemId}`, 404, "PACKET_NOT_FOUND");
-  }
-
-  if (packet.status !== PACKET_STATUS.COMPLETED) {
-    throw serviceError(
-      `Cannot approve packet in ${packet.status} status. Must be COMPLETED.`,
-      400,
-      "INVALID_STATUS"
-    );
-  }
-
-  const user = await User.findByPk(userId);
-  const now = new Date();
-
-  // Determine next status based on whether it's ready stock or production
-  let nextStatus;
-  if (isReadyStock) {
-    nextStatus = ORDER_ITEM_STATUS.AWAITING_CLIENT_APPROVAL;
-  } else {
-    nextStatus = ORDER_ITEM_STATUS.READY_FOR_DYEING;
-  }
-
-  const newTimeline = [...(packet.timeline || [])];
-  newTimeline.push({
-    id: `timeline-${Date.now()}`,
-    action: "Packet approved",
-    user: user?.name || "Production Head",
-    timestamp: now.toISOString(),
-    details: `Next: ${nextStatus}${notes ? `. Notes: ${notes}` : ""}`,
-  });
-
-  await packet.update({
-    status: PACKET_STATUS.APPROVED,
-    checked_by: userId,
-    checked_by_name: user?.name || "Production Head",
-    checked_at: now,
-    check_result: "APPROVED",
-    notes: notes || packet.notes,
-    timeline: newTimeline,
-  });
-
-  // Update order item and sections
-  const orderItem = await OrderItem.findByPk(orderItemId);
-  if (orderItem) {
-    const sectionStatuses = { ...(orderItem.section_statuses || {}) };
-    const sectionsToUpdate = packet.current_round_sections || packet.sections_included || [];
-
-    sectionsToUpdate.forEach((section) => {
-      const key = section.toLowerCase();
-      if (sectionStatuses[key]) {
-        sectionStatuses[key] = {
-          ...sectionStatuses[key],
-          status: SECTION_STATUS.READY_FOR_DYEING,
-          packetCreatedBy: packet.assigned_to,
-          packetCreatedByName: packet.assigned_to_name,
-          updatedAt: now.toISOString(),
-        };
-      }
-    });
-
-    // Check if this is a partial packet with pending sections
-    const hasPending = (packet.sections_pending || []).length > 0;
-    const finalStatus = hasPending
-      ? ORDER_ITEM_STATUS.PARTIAL_CREATE_PACKET
-      : nextStatus;
-
-    await orderItem.update({
-      status: finalStatus,
-      section_statuses: sectionStatuses,
-    });
-
-    await Order.update(
-      { status: finalStatus },
-      { where: { id: orderItem.order_id } }
-    );
-
-    // Update OrderItemSection records
-    for (const section of sectionsToUpdate) {
+    // Update OrderItemSection records — ONLY for sections that were actually
+    // moved to READY_FOR_DYEING (i.e., not protected). This fixes the bug where
+    // the old approvePacket would overwrite OrderItemSection rows already in
+    // advanced stages.
+    for (const section of sectionsForDyeing) {
       await OrderItemSection.update(
         {
           status: SECTION_STATUS.READY_FOR_DYEING,
@@ -622,190 +625,44 @@ async function approvePacket(orderItemId, { userId, isReadyStock, notes }) {
           where: {
             order_item_id: orderItemId,
             piece: { [Op.iLike]: section.toLowerCase() },
+            status: { [Op.notIn]: protectedSectionStatuses },
           },
         }
       );
     }
 
+    // Log activity
     await OrderActivity.log({
       orderId: orderItem.order_id,
       orderItemId,
-      action: `Packet approved by ${user?.name || "Production Head"}. Moving to ${finalStatus}.`,
+      action: `Packet completed by ${user?.name || "Packet Creator"}. Moving to ${nextStatus}.`,
       actionType: ACTIVITY_ACTION_TYPE.STATUS_CHANGE,
       userId: userId || null,
-      userName: user?.name || "Production Head",
-      details: { nextStatus: finalStatus, isReadyStock },
+      userName: user?.name || "Packet Creator",
+      details: { nextStatus, sectionsForDyeing },
     });
   }
 
   const reloaded = await loadPacketWithItems({ id: packet.id });
 
-  notify.packetApproved({ ...packet.toJSON() });
-
-  if (!isReadyStock && orderItem) {
+  // =====================================================================
+  // Notify dyeing users (replaces the old admin-verification notification)
+  // Only if there are actually sections going into dyeing now
+  // =====================================================================
+  if (orderItem && sectionsForDyeing.length > 0) {
     const order = await Order.findByPk(orderItem.order_id, { attributes: ["order_number"] });
-    const sectionsForDyeing = packet.current_round_sections || packet.sections_included || [];
     notify.dyeingRequired(orderItem, sectionsForDyeing, order?.order_number);
   }
 
   return {
     packet: serializePacket(reloaded),
-    nextStatus: orderItem
-      ? (packet.sections_pending || []).length > 0
-        ? ORDER_ITEM_STATUS.PARTIAL_CREATE_PACKET
-        : nextStatus
-      : nextStatus,
-    message: `Packet approved. Moving to ${nextStatus}`,
+    nextStatus,
+    message: `Packet completed. Moving to ${nextStatus}`,
   };
 }
 
-// =========================================================================
-// 10. REJECT PACKET
-// =========================================================================
+// NOTE: approvePacket removed — fabrication self-completes via completePacket.
 
-async function rejectPacket(orderItemId, { userId, reasonCode, reason, notes }) {
-  if (!reasonCode || !reason) {
-    throw serviceError("Rejection reason is required", 400, "VALIDATION_FAILED");
-  }
-
-  const packet = await loadPacketWithItems({ order_item_id: orderItemId });
-  if (!packet) {
-    throw serviceError(`No packet found for order item ${orderItemId}`, 404, "PACKET_NOT_FOUND");
-  }
-
-  if (packet.status !== PACKET_STATUS.COMPLETED) {
-    throw serviceError(
-      `Cannot reject packet in ${packet.status} status. Must be COMPLETED.`,
-      400,
-      "INVALID_STATUS"
-    );
-  }
-
-  const user = await User.findByPk(userId);
-  const now = new Date();
-
-  // Determine which sections are being rejected
-  const sectionsBeingRejected =
-    packet.packet_round > 1 && packet.current_round_sections?.length > 0
-      ? packet.current_round_sections
-      : packet.sections_included?.length > 0
-        ? packet.sections_included
-        : [];
-
-  // Reset packet — back to ASSIGNED (same user redo)
-  const newTimeline = [...(packet.timeline || [])];
-  newTimeline.push({
-    id: `timeline-${Date.now()}`,
-    action: "Packet rejected",
-    user: user?.name || "Production Head",
-    timestamp: now.toISOString(),
-    details: `Reason: ${reason}${notes ? `. Notes: ${notes}` : ""}`,
-  });
-
-  // Reset pick list items for the rejected sections
-  const sectionsLower = sectionsBeingRejected.map((s) => s.toLowerCase());
-  const itemsToReset = packet.items.filter((i) =>
-    sectionsLower.includes((i.piece || "").toLowerCase())
-  );
-
-  for (const item of itemsToReset) {
-    await item.update({
-      is_picked: false,
-      picked_qty: 0,
-      picked_at: null,
-      notes: "",
-    });
-  }
-
-  // Count remaining picked items (from other rounds/sections)
-  const allItems = await PacketItem.findAll({ where: { packet_id: packet.id } });
-  const remainingPicked = allItems.filter((i) => i.is_picked).length;
-
-  await packet.update({
-    status: PACKET_STATUS.ASSIGNED, // Back to same assignee
-    picked_items: remainingPicked,
-    check_result: "REJECTED",
-    rejection_reason: reason,
-    rejection_reason_code: reasonCode,
-    rejection_notes: notes || null,
-    checked_by: userId,
-    checked_by_name: user?.name || "Production Head",
-    checked_at: now,
-    completed_at: null, // Reset completion
-    timeline: newTimeline,
-  });
-
-  // Update order item — sections go back to CREATE_PACKET
-  const orderItem = await OrderItem.findByPk(orderItemId);
-  if (orderItem) {
-    const sectionStatuses = { ...(orderItem.section_statuses || {}) };
-
-    sectionsLower.forEach((sectionKey) => {
-      if (sectionStatuses[sectionKey]) {
-        sectionStatuses[sectionKey] = {
-          ...sectionStatuses[sectionKey],
-          status: SECTION_STATUS.CREATE_PACKET,
-          packetRejectedAt: now.toISOString(),
-          packetRejectionReason: reason,
-          packetRejectionNotes: notes || "",
-          packetRejectedBy: user?.name || "Production Head",
-          updatedAt: now.toISOString(),
-        };
-      }
-    });
-
-    await orderItem.update({
-      status: ORDER_ITEM_STATUS.CREATE_PACKET,
-      section_statuses: sectionStatuses,
-    });
-
-    await Order.update(
-      { status: ORDER_ITEM_STATUS.CREATE_PACKET },
-      { where: { id: orderItem.order_id } }
-    );
-
-    // Update OrderItemSection records
-    for (const section of sectionsLower) {
-      await OrderItemSection.update(
-        {
-          status: SECTION_STATUS.CREATE_PACKET,
-          status_updated_at: now,
-          status_updated_by: userId,
-        },
-        {
-          where: {
-            order_item_id: orderItemId,
-            piece: { [Op.iLike]: section },
-          },
-        }
-      );
-    }
-
-    await OrderActivity.log({
-      orderId: orderItem.order_id,
-      orderItemId,
-      action: `Packet rejected — ${reason}. Sent back to ${packet.assigned_to_name || "Packet Creator"} for correction.`,
-      actionType: ACTIVITY_ACTION_TYPE.STATUS_CHANGE,
-      userId: userId || null,
-      userName: user?.name || "Production Head",
-      details: {
-        reasonCode,
-        reason,
-        notes,
-        sectionsRejected: sectionsBeingRejected,
-      },
-    });
-  }
-
-  const reloaded = await loadPacketWithItems({ id: packet.id });
-
-  notify.packetRejected({ ...packet.toJSON() }, reason);
-
-  return {
-    packet: serializePacket(reloaded),
-    message: `Packet rejected. Sent back to ${packet.assigned_to_name || "Packet Creator"} for correction.`,
-  };
-}
 
 // =========================================================================
 // Exports
@@ -820,6 +677,4 @@ module.exports = {
   startPacket,
   pickItem,
   completePacket,
-  approvePacket,
-  rejectPacket,
 };

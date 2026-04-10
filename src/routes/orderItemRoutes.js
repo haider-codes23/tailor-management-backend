@@ -133,18 +133,6 @@ router.post(
   packetCtrl.completePacket
 );
 
-// POST /api/order-items/:id/packet/approve — Approve packet
-router.post(
-  "/:id/packet/approve",
-  requirePermission("production.approve_packets"),
-  packetCtrl.approvePacket
-);
 
-// POST /api/order-items/:id/packet/reject — Reject packet
-router.post(
-  "/:id/packet/reject",
-  requirePermission("production.approve_packets"),
-  packetCtrl.rejectPacket
-);
 
 module.exports = router;
