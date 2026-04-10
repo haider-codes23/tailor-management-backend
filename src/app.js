@@ -152,6 +152,9 @@ app.use("/api/dispatch", dispatchRoutes);
 const notificationRoutes = require("./routes/notificationRoutes");
 app.use("/api/notifications", notificationRoutes);
 
+const dashboardRoutes = require("./routes/dashboardRoutes");
+app.use("/api/dashboard", dashboardRoutes);
+
 // ============================================================================
 // 404 HANDLER
 // ============================================================================

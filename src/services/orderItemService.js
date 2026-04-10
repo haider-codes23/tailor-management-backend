@@ -386,11 +386,18 @@ async function approveForm(itemId, data, user) {
   const now = new Date().toISOString();
   const approvedBy = data?.approvedBy || user?.name || "System";
 
-  // Determine next status based on size type
+  // Determine next status based on size type.
+  // SIZE_TYPE.CUSTOM === "custom" (lowercase), and size_type is persisted
+  // lowercase by the services + validators — normalize defensively to
+  // guard against any stray casing.
+  const normalizedSizeType = (item.size_type || "").toLowerCase();
+  const isCustom = normalizedSizeType === SIZE_TYPE.CUSTOM;
+
   let nextStatus;
   let timelineAction;
 
-  if (item.size_type.toUpperCase() === SIZE_TYPE.CUSTOM) {
+  if (isCustom) {
+    // Custom items must have a custom BOM built before inventory check
     nextStatus = ORDER_ITEM_STATUS.FABRICATION_BESPOKE;
     timelineAction = "Customer approved form - Forwarded to Fabrication for custom BOM";
   } else {
@@ -412,12 +419,15 @@ async function approveForm(itemId, data, user) {
     actionType: "FORM_APPROVED",
     userId: user?.id || null,
     userName: user?.name || null,
-    details: { approvedBy, nextStatus },
+    details: { approvedBy, nextStatus, sizeType: normalizedSizeType },
   });
 
-  // Update parent order status
+  // Update parent order timestamp only — item-level statuses
+  // (FABRICATION_BESPOKE, INVENTORY_CHECK) should not be pushed onto the
+  // parent order, especially when an order has multiple items at
+  // different stages. Mirrors the pattern used in generateForm().
   await Order.update(
-    { status: nextStatus, updated_at: now },
+    { updated_at: now },
     { where: { id: item.order_id } }
   );
 
