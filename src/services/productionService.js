@@ -90,7 +90,6 @@ function serializeTask(t) {
  * In-memory round-robin index.
  * For production-grade, this would be persisted in a settings table.
  */
-let roundRobinIndex = -1;
 
 async function getProductionHeads() {
   return User.findAll({
@@ -105,8 +104,6 @@ async function getProductionHeads() {
 
 async function getRoundRobinState() {
   const heads = await getProductionHeads();
-  const nextIndex = heads.length > 0 ? (roundRobinIndex + 1) % heads.length : -1;
-  const nextHead = nextIndex >= 0 ? heads[nextIndex] : null;
 
   const inProductionCount = await OrderItem.count({
     where: {
@@ -115,10 +112,10 @@ async function getRoundRobinState() {
   });
 
   return {
-    lastAssignedIndex: roundRobinIndex,
+    lastAssignedIndex: -1,
     productionHeadIds: heads.map((h) => h.id),
     productionHeads: heads.map((h) => ({ id: h.id, name: h.name })),
-    nextProductionHead: nextHead ? { id: nextHead.id, name: nextHead.name } : null,
+    nextProductionHead: null,
     totalProductionHeads: heads.length,
     stats: {
       inProduction: inProductionCount,
@@ -126,6 +123,14 @@ async function getRoundRobinState() {
     },
     updatedAt: new Date().toISOString(),
   };
+}
+
+/**
+ * Returns the list of active production heads for the manual-assignment dropdown.
+ */
+async function getProductionHeadsList() {
+  const heads = await getProductionHeads();
+  return heads.map((h) => ({ id: h.id, name: h.name }));
 }
 
 // =========================================================================
@@ -167,10 +172,6 @@ async function getReadyForAssignment() {
     order: [["created_at", "ASC"]],
   });
 
-  const heads = await getProductionHeads();
-  const nextIndex = heads.length > 0 ? (roundRobinIndex + 1) % heads.length : -1;
-  const nextHead = nextIndex >= 0 ? heads[nextIndex] : null;
-
   const readyItems = items.map((item) => {
     const ss = item.section_statuses || {};
     const readySections = Object.entries(ss)
@@ -204,7 +205,7 @@ async function getReadyForAssignment() {
 
   return {
     items: readyItems,
-    nextProductionHead: nextHead ? { id: nextHead.id, name: nextHead.name } : null,
+    nextProductionHead: null,
     total: readyItems.length,
   };
 }
@@ -213,9 +214,13 @@ async function getReadyForAssignment() {
 // 3. ASSIGN PRODUCTION HEAD
 // =========================================================================
 
-async function assignProductionHead(orderItemId, { assignedBy }) {
+async function assignProductionHead(orderItemId, { assignedBy, productionHeadId }) {
   const item = await OrderItem.findByPk(orderItemId);
   if (!item) throw serviceError("Order item not found", 404, "NOT_FOUND");
+
+  if (!productionHeadId) {
+    throw serviceError("productionHeadId is required", 400, "VALIDATION");
+  }
 
   const existing = await ProductionAssignment.findOne({ where: { order_item_id: orderItemId } });
   if (existing) {
@@ -227,9 +232,10 @@ async function assignProductionHead(orderItemId, { assignedBy }) {
     throw serviceError("No active production heads available", 400, "NO_HEADS");
   }
 
-  const nextIndex = (roundRobinIndex + 1) % heads.length;
-  const assignedHead = heads[nextIndex];
-  roundRobinIndex = nextIndex;
+  const assignedHead = heads.find((h) => String(h.id) === String(productionHeadId));
+  if (!assignedHead) {
+    throw serviceError("Selected user is not an active production head", 400, "INVALID_HEAD");
+  }
 
   const assigner = assignedBy ? await User.findByPk(assignedBy, { attributes: ["id", "name"] }) : null;
   const now = new Date();
@@ -255,12 +261,6 @@ async function assignProductionHead(orderItemId, { assignedBy }) {
     details: { productionHeadId: assignedHead.id },
   });
 
-
-
-  // Next head after this assignment
-  const nextNextIndex = (roundRobinIndex + 1) % heads.length;
-  const nextHead = heads[nextNextIndex];
-
   return {
     assignment: {
       id: assignment.id,
@@ -271,7 +271,7 @@ async function assignProductionHead(orderItemId, { assignedBy }) {
       assignedBy: assignment.assigned_by,
       productionStartedAt: null,
     },
-    nextProductionHead: nextHead ? { id: nextHead.id, name: nextHead.name } : null,
+    nextProductionHead: null,
     message: `Production head ${assignedHead.name} assigned successfully`,
   };
 }
@@ -959,11 +959,118 @@ async function sendSectionToQA(orderItemId, sectionName, { userId }) {
 }
 
 // =========================================================================
+// 13. REASSIGN TASK (production head reassigns a task to a different worker)
+// =========================================================================
+
+async function reassignTask(taskId, { newWorkerId, reason, userId }) {
+  if (!newWorkerId) {
+    throw serviceError("newWorkerId is required", 400, "VALIDATION");
+  }
+  if (!reason || !reason.trim()) {
+    throw serviceError("reason is required", 400, "VALIDATION");
+  }
+
+  const task = await ProductionTask.findByPk(taskId);
+  if (!task) throw serviceError("Task not found", 404, "TASK_NOT_FOUND");
+
+  // Only PENDING, READY, IN_PROGRESS can be reassigned
+  const reassignable = [TASK_STATUS.PENDING, TASK_STATUS.READY, TASK_STATUS.IN_PROGRESS];
+  if (!reassignable.includes(task.status)) {
+    throw serviceError(
+      `Task cannot be reassigned. Current status: ${task.status}`,
+      400,
+      "INVALID_STATUS"
+    );
+  }
+
+  // Validate new worker exists, is active, and has WORKER role
+  const newWorker = await User.findOne({
+    where: { id: newWorkerId, is_active: true },
+    attributes: ["id", "name", "role"],
+  });
+  if (!newWorker) {
+    throw serviceError("Selected worker not found or inactive", 400, "INVALID_WORKER");
+  }
+  if (newWorker.role !== "WORKER") {
+    throw serviceError("Selected user is not a worker", 400, "INVALID_WORKER_ROLE");
+  }
+
+  // Prevent reassigning to the same worker
+  if (String(task.assigned_to_id) === String(newWorkerId)) {
+    throw serviceError("Task is already assigned to this worker", 400, "SAME_WORKER");
+  }
+
+  // Capture the previous worker BEFORE overwriting
+  const previousWorkerId = task.assigned_to_id;
+  const previousWorkerName = task.assigned_to_name;
+
+  // Resolve the reassigning user (production head)
+  const reassigner = userId
+    ? await User.findByPk(userId, { attributes: ["id", "name"] })
+    : null;
+
+  const now = new Date();
+
+  // Option (a): reset — drop back to READY, clear started_at
+  const wasInProgress = task.status === TASK_STATUS.IN_PROGRESS;
+  await task.update({
+    assigned_to_id: newWorker.id,
+    assigned_to_name: newWorker.name,
+    assigned_at: now,
+    assigned_by: userId || null,
+    assigned_by_name: reassigner?.name || "Production Head",
+    status: wasInProgress ? TASK_STATUS.READY : task.status,
+    started_at: wasInProgress ? null : task.started_at,
+    notes: task.notes
+      ? `${task.notes}\n[Reassigned ${now.toISOString()}] ${reason.trim()}`
+      : `[Reassigned ${now.toISOString()}] ${reason.trim()}`,
+  });
+
+  // Activity log — shows up in the timeline
+  const item = await OrderItem.findByPk(task.order_item_id, {
+    attributes: ["id", "order_id"],
+  });
+
+  await OrderActivity.log({
+    orderId: item?.order_id || null,
+    orderItemId: task.order_item_id,
+    action: `Task reassigned from ${previousWorkerName || "previous worker"} to ${newWorker.name}: ${reason.trim()}`,
+    actionType: ACTIVITY_ACTION_TYPE.STATUS_CHANGE,
+    userId: userId || null,
+    userName: reassigner?.name || "Production Head",
+    details: {
+      taskId: task.id,
+      sectionName: task.section_name,
+      previousWorkerId,
+      previousWorkerName,
+      newWorkerId: newWorker.id,
+      newWorkerName: newWorker.name,
+      reason: reason.trim(),
+      wasInProgress,
+    },
+  });
+
+  // Notifications — best-effort, don't block on failure
+  try {
+    if (previousWorkerId) {
+      notify.taskReassignedAway(task, previousWorkerId, newWorker.name, reason.trim());
+    }
+    // After the update, task.assigned_to_id is now the new worker — taskAssigned reads it from there
+    notify.taskAssigned(task);
+  } catch (e) {
+    console.error("[reassignTask] notification error (non-fatal):", e.message);
+  }
+
+  return serializeTask(await ProductionTask.findByPk(taskId));
+}
+
+// =========================================================================
 // EXPORTS
 // =========================================================================
 
 module.exports = {
   getRoundRobinState,
+  getProductionHeadsList,
   getReadyForAssignment,
   assignProductionHead,
   getMyAssignments,
@@ -977,4 +1084,5 @@ module.exports = {
   completeTask,
   getSectionTimeline,
   sendSectionToQA,
+  reassignTask,
 };

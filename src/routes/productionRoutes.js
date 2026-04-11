@@ -13,6 +13,7 @@ router.use(authenticate);
 
 // ── Round Robin & Assignment ────────────────────────────────────────
 router.get("/round-robin-state", requirePermission("production.view"), ctrl.getRoundRobinState);
+router.get("/heads", requirePermission("production.assign_head"), ctrl.getProductionHeadsList);
 router.get("/ready-for-assignment", requirePermission("production.assign_head"), ctrl.getReadyForAssignment);
 router.post("/assign-head/:orderItemId", requirePermission("production.assign_head"), ctrl.assignProductionHead);
 
@@ -42,6 +43,7 @@ router.post(
 router.get("/worker/my-tasks", requirePermission("production.view"), ctrl.getWorkerTasks);
 router.post("/tasks/:taskId/start", requirePermission("production.start_task"), ctrl.startTask);
 router.post("/tasks/:taskId/complete", requirePermission("production.complete_task"), ctrl.completeTask);
+router.post("/tasks/:taskId/reassign", requirePermission("production.assign_tasks"), ctrl.reassignTask);
 
 // ── Section Timeline & QA ───────────────────────────────────────────
 router.get(

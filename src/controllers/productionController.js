@@ -28,16 +28,30 @@ exports.getReadyForAssignment = async (req, res, next) => {
 exports.assignProductionHead = async (req, res, next) => {
   try {
     const { orderItemId } = req.params;
-    const { assignedBy } = req.body;
+    const { assignedBy, productionHeadId } = req.body;
     const userId = assignedBy || req.user?.id;
+
+    if (!productionHeadId) {
+      return res.status(400).json({ success: false, error: "productionHeadId is required" });
+    }
 
     const data = await productionService.assignProductionHead(orderItemId, {
       assignedBy: userId,
+      productionHeadId,
     });
 
     res.json({ success: true, data: data.assignment ? data : data, message: data.message });
   } catch (err) {
     if (err.status) return res.status(err.status).json({ success: false, error: err.message });
+    next(err);
+  }
+};
+
+exports.getProductionHeadsList = async (req, res, next) => {
+  try {
+    const data = await productionService.getProductionHeadsList();
+    res.json({ success: true, data });
+  } catch (err) {
     next(err);
   }
 };
@@ -164,6 +178,25 @@ exports.completeTask = async (req, res, next) => {
     const result = await productionService.completeTask(taskId);
     const { message, ...data } = result;
     res.json({ success: true, data, message });
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ success: false, error: err.message });
+    next(err);
+  }
+};
+
+exports.reassignTask = async (req, res, next) => {
+  try {
+    const { taskId } = req.params;
+    const { newWorkerId, reason } = req.body;
+    const userId = req.user?.id;
+
+    const data = await productionService.reassignTask(taskId, {
+      newWorkerId,
+      reason,
+      userId,
+    });
+
+    res.json({ success: true, data, message: "Task reassigned successfully" });
   } catch (err) {
     if (err.status) return res.status(err.status).json({ success: false, error: err.message });
     next(err);
