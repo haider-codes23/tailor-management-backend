@@ -46,6 +46,11 @@ function serviceError(msg, status = 400, code = "SHOPIFY_ERROR") {
   return err;
 }
 
+function capitalize(s) {
+  if (!s || typeof s !== "string") return s || "";
+  return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+}
+
 /**
  * Build section_statuses JSONB from section rows.
  */
@@ -934,26 +939,55 @@ async function syncOrderToShopify(orderId, user) {
   });
 
   try {
-    // Build line items for the Shopify draft order
-    const lineItems = (order.items || []).map((item) => {
+    // Build line items for the Shopify draft order.
+    // Each order item expands into:
+    //   1. The main line item (linked variant OR custom line with unit_price)
+    //   2. One custom line item per add-on in selected_add_ons
+    const lineItems = [];
+    for (const item of order.items || []) {
       const product = item.product;
+      const qty = item.quantity || 1;
 
-      // If the product has a Shopify variant ID, use it for proper linking
+      // ── Main line item ──
       if (product?.shopify_variant_id) {
-        return {
+        // Linked variant — Shopify uses the variant's own price
+        lineItems.push({
           variant_id: parseInt(product.shopify_variant_id, 10),
-          quantity: item.quantity || 1,
-        };
+          quantity: qty,
+        });
+      } else {
+        // Custom line — use the order item's unit_price
+        lineItems.push({
+          title: product?.name || item.product_name || "Custom Item",
+          quantity: qty,
+          price: parseFloat(item.unit_price) || 0,
+          requires_shipping: true,
+        });
       }
 
-      // Otherwise, create a custom line item
-      return {
-        title: product?.name || item.product_name || "Custom Item",
-        quantity: item.quantity || 1,
-        price: parseFloat(item.unit_price) || 0,
-        requires_shipping: true,
-      };
-    });
+      // ── Add-on line items ──
+      // selected_add_ons is JSONB: [{ piece, price }, ...]
+      const addOns = Array.isArray(item.selected_add_ons)
+        ? item.selected_add_ons
+        : [];
+      for (const addon of addOns) {
+        if (!addon || !addon.piece) continue;
+        const addonPrice = parseFloat(addon.price) || 0;
+        if (addonPrice <= 0) continue; // skip zero-priced add-ons
+
+        const addonTitle = `${product?.name || item.product_name || "Item"} - ${capitalize(addon.piece)} (Add-on)`;
+        lineItems.push({
+          title: addonTitle,
+          quantity: qty,
+          price: addonPrice,
+          requires_shipping: true,
+        });
+      }
+    }
+
+    console.log(
+      `   Built ${lineItems.length} Shopify line item(s) from ${(order.items || []).length} order item(s)`
+    );
 
     // Build customer info
     const nameParts = (order.customer_name || "Customer").split(" ");
@@ -1261,6 +1295,127 @@ async function syncFulfillmentToShopify(orderId, user) {
 }
 
 // =========================================================================
+// J. SYNC PAYMENT STATUS TO SHOPIFY (Sales payment approval → Shopify paid)
+// =========================================================================
+
+/**
+ * Push paid status to Shopify for an order whose payment has been fully
+ * verified by Sales. Silently skips orders not linked to Shopify.
+ *
+ * Fire-and-forget pattern: callers should wrap in try/catch and NOT fail
+ * the main workflow if this errors — Shopify sync is non-critical.
+ *
+ * @param {string} orderId - Internal order UUID
+ * @param {Object} user - Authenticated user who approved the payment
+ * @returns {Promise<Object|null>} Sync result, or null if skipped
+ */
+async function syncPaymentStatusToShopify(orderId, user) {
+  const order = await Order.findByPk(orderId);
+
+  if (!order) {
+    console.warn(`[syncPaymentStatusToShopify] Order ${orderId} not found`);
+    return null;
+  }
+
+  if (!order.shopify_order_id) {
+    console.log(
+      `[syncPaymentStatusToShopify] Order ${order.order_number} has no shopify_order_id — skipping`
+    );
+    return null;
+  }
+
+  const totalAmount = parseFloat(order.total_amount) || 0;
+  const currency = order.currency || "PKR";
+
+  // Resolve user name for the activity log
+  let userName = "System";
+  if (user?.id) {
+    try {
+      const u = await User.findByPk(user.id, { attributes: ["id", "name"] });
+      userName = u?.name || "System";
+    } catch {
+      /* non-fatal */
+    }
+  }
+
+  try {
+    console.log(
+      `💰 Marking Shopify order ${order.shopify_order_id} as paid (${currency} ${totalAmount})`
+    );
+
+    const result = await shopifyApi.markOrderPaid(
+      order.shopify_order_id,
+      totalAmount,
+      currency
+    );
+
+    console.log(
+      `[syncPaymentStatusToShopify] Shopify response:`,
+      JSON.stringify(result)
+    );
+
+    await order.update({ shopify_last_synced_at: new Date() });
+
+    await OrderActivity.create({
+      order_id: orderId,
+      action: `Payment marked as paid on Shopify (${currency} ${totalAmount})`,
+      action_type: "SHOPIFY_SYNC",
+      user_id: user?.id || null,
+      user_name: userName,
+      details: {
+        shopifyOrderId: order.shopify_order_id,
+        amount: totalAmount,
+        currency,
+        transactionId: result?.transaction?.id || null,
+        transactionKind: result?.transaction?.kind || null,
+        transactionStatus: result?.transaction?.status || null,
+      },
+    });
+
+    console.log(
+      `✅ Shopify payment status synced for order ${order.order_number}`
+    );
+
+    return {
+      shopifyOrderId: order.shopify_order_id,
+      amount: totalAmount,
+      currency,
+      transactionId: result?.transaction?.id || null,
+    };
+  } catch (err) {
+    console.error(
+      `❌ Failed to sync payment status to Shopify for order ${order.order_number}:`,
+      err.message
+    );
+    if (err.shopifyErrors) {
+      console.error(`   Shopify errors:`, JSON.stringify(err.shopifyErrors));
+    }
+
+    try {
+      await OrderActivity.create({
+        order_id: orderId,
+        action: `Failed to sync payment to Shopify: ${err.message}`,
+        action_type: "SHOPIFY_SYNC",
+        user_id: user?.id || null,
+        user_name: userName,
+        details: {
+          shopifyOrderId: order.shopify_order_id,
+          error: err.message,
+          shopifyErrors: err.shopifyErrors || null,
+        },
+      });
+    } catch (logErr) {
+      console.error(
+        `[syncPaymentStatusToShopify] Also failed to write activity log:`,
+        logErr.message
+      );
+    }
+
+    return null;
+  }
+}
+
+// =========================================================================
 // Exports
 // =========================================================================
 
@@ -1274,4 +1429,5 @@ module.exports = {
   syncProducts,
   syncOrderToShopify,      
   syncFulfillmentToShopify,
+  syncPaymentStatusToShopify,
 };
