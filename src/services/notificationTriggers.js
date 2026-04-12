@@ -105,6 +105,30 @@ function taskAssigned(task) {
 }
 
 /**
+ * Task reassigned away from a worker → notify the previous worker
+ * so they know the task is no longer on their plate.
+ */
+function taskReassignedAway(task, previousWorkerId, newWorkerName, reason) {
+  if (!previousWorkerId) return;
+
+  const sectionName = task.section_name || task.sectionName;
+  const taskType = task.task_type || task.taskType;
+  const customTaskName = task.custom_task_name || task.customTaskName;
+  const orderItemId = task.order_item_id || task.orderItemId;
+  const taskLabel = customTaskName || taskType || "Task";
+
+  getNotificationService().notifyUser(previousWorkerId, {
+    type: NOTIFICATION_TYPES.TASK_ASSIGNED,
+    title: "Task Reassigned",
+    message: `${taskLabel} for ${sectionName} was reassigned to ${newWorkerName || "another worker"}${reason ? ` — ${reason}` : ""}`,
+    referenceType: REFERENCE_TYPES.PRODUCTION_TASK,
+    referenceId: task.id,
+    actionUrl: "/production",
+    metadata: { sectionName, taskType, orderItemId, reason, newWorkerName },
+  });
+}
+
+/**
  * Section sent to QA → notify QA users
  */
 function sectionSentToQA(orderItemId, sectionName, orderId) {
@@ -467,6 +491,7 @@ module.exports = {
   orderCancelled,
   productionAssigned,
   taskAssigned,
+  taskReassignedAway,
   sectionSentToQA,
   qaRejected,
   sentToSales,
