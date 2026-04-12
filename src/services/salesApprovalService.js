@@ -654,7 +654,7 @@ module.exports = function createSalesApprovalService(db) {
   // ── 12. approvePayments ──────────────────────────────────────────
 
   async function approvePayments(orderId, approvedBy) {
-    return sequelize.transaction(async (t) => {
+    const result = await sequelize.transaction(async (t) => {
       const order = await Order.findByPk(orderId, { transaction: t });
       if (!order) throw serviceError("Order not found", 404, "NOT_FOUND");
 
@@ -717,6 +717,28 @@ module.exports = function createSalesApprovalService(db) {
         totalAmount,
       };
     });
+
+    // ── After transaction commits, push paid status to Shopify ──
+    // Fire-and-forget: a Shopify failure must NOT undo payment approval.
+    // Lazy require avoids circular dependency with shopifyService.
+    try {
+      const shopifyService = require("./shopifyService");
+      shopifyService
+        .syncPaymentStatusToShopify(orderId, { id: approvedBy })
+        .catch((err) => {
+          console.error(
+            `[approvePayments] Shopify payment sync error for order ${orderId}:`,
+            err.message
+          );
+        });
+    } catch (err) {
+      console.error(
+        `[approvePayments] Could not invoke Shopify payment sync for order ${orderId}:`,
+        err.message
+      );
+    }
+
+    return result;
   }
 
   return {
