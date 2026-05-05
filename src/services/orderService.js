@@ -264,6 +264,7 @@ async function createOrder(data, user) {
         // Dates
         fwd_date: data.fwd_date || data.fwdDate || new Date().toISOString().split("T")[0],
         production_shipping_date: data.production_shipping_date || data.productionShippingDate || null,
+        actual_shipping_date: data.actual_shipping_date || data.actualShippingDate || null,
         // Shopify (manual orders start as NOT_SYNCED)
         shopify_sync_status: SHOPIFY_SYNC_STATUS.NOT_SYNCED,
         // Misc
@@ -615,10 +616,19 @@ async function getTimeline(orderId) {
  * Add a payment to an order.
  * Mirrors: POST /api/orders/:id/payments
  */
-async function addPayment(orderId, paymentData, user) {
+async function addPayment(orderId, paymentData, user, file) {
   const order = await Order.findByPk(orderId);
   if (!order) {
     throw serviceError("Order not found", 404, "ORDER_NOT_FOUND");
+  }
+
+  // Resolve receipt URL: prefer uploaded file, fallback to legacy receiptUrl string
+  let receiptUrl = null;
+  if (file) {
+    // Served statically via app.use("/uploads", express.static(...))
+    receiptUrl = `/uploads/receipts/${file.filename}`;
+  } else if (paymentData.receiptUrl) {
+    receiptUrl = paymentData.receiptUrl;
   }
 
   const payment = {
@@ -627,11 +637,16 @@ async function addPayment(orderId, paymentData, user) {
     method: paymentData.method || order.payment_method,
     date: paymentData.date || new Date().toISOString(),
     notes: paymentData.notes || null,
+    receipt_url: receiptUrl,
     recorded_by: user.name,
+    created_at: new Date().toISOString(),
   };
 
   const payments = [...(order.payments || []), payment];
-  const totalReceived = payments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
+  const totalReceived = payments.reduce(
+    (sum, p) => sum + (parseFloat(p.amount) || 0),
+    0
+  );
   const remaining = parseFloat(order.total_amount) - totalReceived;
 
   let paymentStatus = PAYMENT_STATUS.PENDING;
@@ -647,14 +662,21 @@ async function addPayment(orderId, paymentData, user) {
     remaining_amount: remaining,
     payment_status: paymentStatus,
   });
+  order.changed("payments", true);
+  await order.save();
 
   await OrderActivity.log({
     orderId,
-    action: `Payment of ${payment.amount} recorded`,
+    action: `Payment of ${payment.amount} recorded${receiptUrl ? " (with receipt)" : ""}`,
     actionType: ACTIVITY_ACTION_TYPE.PAYMENT,
     userId: user.id,
     userName: user.name,
-    details: { payment_id: payment.id, amount: payment.amount, new_status: paymentStatus },
+    details: {
+      payment_id: payment.id,
+      amount: payment.amount,
+      new_status: paymentStatus,
+      has_receipt: !!receiptUrl,
+    },
   });
 
   return getOrderById(orderId);

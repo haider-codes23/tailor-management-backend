@@ -14,6 +14,7 @@ router.use(authenticate);
 // ── Round Robin & Assignment ────────────────────────────────────────
 router.get("/round-robin-state", requirePermission("production.view"), ctrl.getRoundRobinState);
 router.get("/heads", requirePermission("production.assign_head"), ctrl.getProductionHeadsList);
+router.get("/heads-workload", requirePermission("production.assign_head"), ctrl.getProductionHeadsWorkload);
 router.get("/ready-for-assignment", requirePermission("production.assign_head"), ctrl.getReadyForAssignment);
 router.post("/assign-head/:orderItemId", requirePermission("production.assign_head"), ctrl.assignProductionHead);
 

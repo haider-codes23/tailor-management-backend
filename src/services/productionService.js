@@ -133,6 +133,82 @@ async function getProductionHeadsList() {
   return heads.map((h) => ({ id: h.id, name: h.name }));
 }
 
+/**
+ * Returns each production head with their current workload —
+ * the active order items they are assigned to, grouped by product name.
+ * Used by the assignment UI so the assigner can make informed decisions.
+ */
+async function getProductionHeadsWorkload() {
+  const heads = await getProductionHeads();
+
+  const results = [];
+  for (const head of heads) {
+    const assignments = await ProductionAssignment.findAll({
+      where: { production_head_id: head.id },
+      attributes: ["order_item_id"],
+      raw: true,
+    });
+
+    const itemIds = assignments.map((a) => a.order_item_id);
+    let items = [];
+    if (itemIds.length > 0) {
+      items = await OrderItem.findAll({
+        where: {
+          id: { [Op.in]: itemIds },
+          status: {
+            [Op.in]: [
+              ORDER_ITEM_STATUS.READY_FOR_PRODUCTION,
+              ORDER_ITEM_STATUS.IN_PRODUCTION,
+              ORDER_ITEM_STATUS.PARTIAL_IN_PRODUCTION,
+              ORDER_ITEM_STATUS.DYEING_COMPLETED,
+            ],
+          },
+        },
+        include: [
+          {
+            model: Order,
+            as: "order",
+            attributes: ["id", "order_number", "customer_name"],
+          },
+        ],
+        attributes: ["id", "product_name", "product_image", "status", "order_id"],
+      });
+    }
+
+    // Group by product name with count
+    const productCounts = {};
+    const activeItems = [];
+    for (const item of items) {
+      const name = item.product_name || "Unknown";
+      if (!productCounts[name]) {
+        productCounts[name] = { count: 0, image: item.product_image || null };
+      }
+      productCounts[name].count += 1;
+      activeItems.push({
+        id: item.id,
+        productName: item.product_name,
+        orderNumber: item.order?.order_number || "",
+        customerName: item.order?.customer_name || "",
+        status: item.status,
+      });
+    }
+
+    results.push({
+      id: head.id,
+      name: head.name,
+      totalActiveItems: items.length,
+      productBreakdown: Object.entries(productCounts).map(([name, data]) => ({
+        productName: name,
+        count: data.count,
+        image: data.image,
+      })),
+      activeItems,
+    });
+  }
+
+  return results;
+}
+
 // =========================================================================
 // 2. READY FOR ASSIGNMENT
 // =========================================================================
@@ -1071,6 +1147,7 @@ async function reassignTask(taskId, { newWorkerId, reason, userId }) {
 module.exports = {
   getRoundRobinState,
   getProductionHeadsList,
+  getProductionHeadsWorkload,
   getReadyForAssignment,
   assignProductionHead,
   getMyAssignments,

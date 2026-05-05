@@ -53,7 +53,8 @@ const ROLE_TEMPLATES = {
     SALES: {
         label: "Sales Representative",
         permissions: [
-            "orders.view", "orders.create",
+            "orders.view", "orders.create", "order.edit",
+            "production.view", "production.manage", "production.assign_tasks", "users.view",
             "orders.manage_customer_forms", "orders.approve_customer_forms",
             "inventory.view", "products.view",
             "sales.view_approval_queue", "sales.send_to_client",
@@ -91,6 +92,8 @@ const ROLE_TEMPLATES = {
         permissions: [
             "dyeing.view", "dyeing.accept", "dyeing.start", "dyeing.complete",
             "orders.view", "inventory.view", "products.view",
+            // Allow dyeing users to assign production heads after dyeing completes
+            "production.view", "production.assign_head",
         ],
     },
 

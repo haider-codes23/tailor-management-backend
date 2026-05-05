@@ -56,6 +56,15 @@ exports.getProductionHeadsList = async (req, res, next) => {
   }
 };
 
+exports.getProductionHeadsWorkload = async (req, res, next) => {
+  try {
+    const data = await productionService.getProductionHeadsWorkload();
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+};
+
 // ── Production Head Dashboard ───────────────────────────────────────
 
 exports.getMyAssignments = async (req, res, next) => {

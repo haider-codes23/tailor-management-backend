@@ -74,14 +74,14 @@ const createItemSchema = Joi.object({
   image_url: Joi.string().allow(null, "").optional(),
   notes: Joi.string().allow(null, "").optional(),
 
-  // Product link (READY_STOCK)
-  llinked_product_id: Joi.when("category", {
-  is: Joi.string().valid("READY_STOCK", "READY_SAMPLE"),
-  then: Joi.string().uuid().required().messages({
-    "any.required": "linked_product_id is required for READY_STOCK and READY_SAMPLE items",
-    "string.empty": "linked_product_id is required for READY_STOCK and READY_SAMPLE items",
-  }),
-  otherwise: Joi.string().uuid().allow(null).optional(),
+  // Product link (READY_STOCK / READY_SAMPLE only)
+  linked_product_id: Joi.when("category", {
+    is: Joi.string().valid("READY_STOCK", "READY_SAMPLE"),
+    then: Joi.string().uuid().required().messages({
+      "any.required": "linked_product_id is required for READY_STOCK and READY_SAMPLE items",
+      "string.empty": "linked_product_id is required for READY_STOCK and READY_SAMPLE items",
+    }),
+    otherwise: Joi.string().uuid().allow(null).optional(),
   }),
 
   // Variants (READY_STOCK / READY_SAMPLE)

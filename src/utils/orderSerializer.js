@@ -49,7 +49,7 @@ function camelCaseKeys(obj, depth = 0) {
       "style", "color", "fabric", "measurements",
       "section_statuses", "sectionStatuses",
       "custom_bom", "customBom",
-      "payments", "tags",
+      "tags",
       "product_items", "productItems",
       "add_ons", "addOns",
       "included_items", "includedItems",
