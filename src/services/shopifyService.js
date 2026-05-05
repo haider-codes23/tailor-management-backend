@@ -662,6 +662,12 @@ async function importShopifyOrder(shopifyOrderId, user) {
  * @param {Object} shopifyOrderData - Raw Shopify order payload from webhook
  */
 async function handleOrderWebhook(shopifyOrderData) {
+  // Guard: reject payloads with no valid order ID
+  if (!shopifyOrderData.id || shopifyOrderData.id === undefined) {
+    console.warn("⚠️ Webhook received with no valid order ID, ignoring payload");
+    return { skipped: true, reason: "missing_order_id" };
+  }
+
   const shopifyOrderId = String(shopifyOrderData.id);
 
   // Check if already imported (idempotency)
