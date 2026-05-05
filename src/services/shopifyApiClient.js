@@ -261,4 +261,79 @@ module.exports = {
   async getOrder(shopifyOrderId) {
     return shopifyRequest("GET", `/orders/${shopifyOrderId}.json`);
   },
+
+  /**
+   * Record a successful "sale" transaction on a Shopify order.
+   * Used when an internal order (created via draft with payment_pending=true)
+   * has been paid offline and we want Shopify to reflect financial_status=paid.
+   *
+   * @param {string|number} shopifyOrderId
+   * @param {number} amount - Amount paid (should equal order total)
+   * @param {string} currency - e.g., "PKR"
+   * @returns {Promise<Object>}
+   */
+  /**
+   * Mark a Shopify order as paid by capturing its pending authorization.
+   *
+   * For manual-gateway orders created via draft + payment_pending=true,
+   * Shopify records a pending authorization that must be CAPTURED, not
+   * replaced with a fresh "sale". This method finds the pending auth and
+   * posts a capture referencing it.
+   *
+   * Falls back to a standalone "sale" transaction if no pending auth exists
+   * (e.g., for orders that were created without the payment_pending flag).
+   *
+   * @param {string|number} shopifyOrderId
+   * @param {number} amount - Amount paid
+   * @param {string} currency - e.g., "PKR"
+   * @returns {Promise<Object>}
+   */
+  async markOrderPaid(shopifyOrderId, amount, currency) {
+    // Step 1: Fetch existing transactions on the order
+    const txData = await shopifyRequest(
+      "GET",
+      `/orders/${shopifyOrderId}/transactions.json`
+    );
+    const transactions = txData?.transactions || [];
+
+    // Step 2: Find a pending authorization (or pending sale) to capture
+    const pendingAuth = transactions.find(
+      (t) =>
+        (t.kind === "authorization" || t.kind === "sale") &&
+        t.status === "pending"
+    );
+
+    // Step 3a: If a pending auth exists → capture it
+    if (pendingAuth) {
+      return shopifyRequest(
+        "POST",
+        `/orders/${shopifyOrderId}/transactions.json`,
+        {
+          transaction: {
+            kind: "capture",
+            status: "success",
+            amount: String(amount),
+            currency,
+            parent_id: pendingAuth.id,
+            gateway: pendingAuth.gateway || "manual",
+          },
+        }
+      );
+    }
+
+    // Step 3b: No pending auth → post a standalone sale (e.g., webhook-sourced
+    // orders or any order created without payment_pending)
+    return shopifyRequest(
+      "POST",
+      `/orders/${shopifyOrderId}/transactions.json`,
+      {
+        transaction: {
+          kind: "sale",
+          status: "success",
+          amount: String(amount),
+          currency,
+        },
+      }
+    );
+  },
 };
