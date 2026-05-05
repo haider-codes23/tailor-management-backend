@@ -36,6 +36,7 @@ const ROLE_TEMPLATES = {
             // QA
             "qa.view", "qa.approve", "qa.request_rework",
             "qa.reject", "qa.upload_video", "qa.send_to_sales", "qa.view_sales_requests",
+            "qa.add_video_link",
             // Dyeing
             "dyeing.view", "dyeing.accept", "dyeing.start",
             "dyeing.complete", "dyeing.view_all",
@@ -45,6 +46,7 @@ const ROLE_TEMPLATES = {
             "sales.view_approval_queue", "sales.send_to_client",
             "sales.mark_client_approved", "sales.request_alteration",
             "sales.request_revideo", "sales.cancel_order", "sales.approve_payments",
+            "sales.view", "sales.upload_screenshots", "sales.start_from_scratch",
             // Reports
             "reports.view",
         ],
@@ -84,6 +86,7 @@ const ROLE_TEMPLATES = {
         label: "Packet Creator",
         permissions: [
             "orders.view", "production.view", "inventory.view", "products.view",
+            "fabrication.view", "fabrication.create_bom", "fabrication.edit_bom",
         ],
     },
 
@@ -110,7 +113,7 @@ const ROLE_TEMPLATES = {
         permissions: [
             "orders.view", "qa.view", "qa.approve", "qa.request_rework",
             "qa.reject", "qa.upload_video", "qa.send_to_sales",
-            "qa.view_sales_requests", "products.view",
+            "qa.view_sales_requests", "qa.add_video_link", "products.view",
         ],
     },
 
