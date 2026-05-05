@@ -144,7 +144,12 @@ async function getTimeline(req, res, next) {
 
 async function addPayment(req, res, next) {
   try {
-    const order = await orderService.addPayment(req.params.id, req.body, req.user);
+    const order = await orderService.addPayment(
+      req.params.id,
+      req.body,
+      req.user,
+      req.file
+    );
     return res.json({ success: true, data: serializeOrder(order) });
   } catch (err) {
     next(err);

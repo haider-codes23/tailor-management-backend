@@ -90,9 +90,12 @@ router.get(
 );
 
 // POST /api/orders/:id/payments — add payment
+const { receiptUpload } = require("../config/multer");
+
 router.post(
   "/:id/payments",
   requirePermission("orders.edit"),
+  receiptUpload.single("receiptFile"),
   validate(addPaymentSchema),
   orderController.addPayment
 );

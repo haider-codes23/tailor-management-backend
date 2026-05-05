@@ -104,6 +104,8 @@ const createOrderSchema = Joi.object({
   fwdDate: Joi.string().allow(null, "").optional(),
   production_shipping_date: Joi.string().allow(null, "").optional(),
   productionShippingDate: Joi.string().allow(null, "").optional(),
+  actual_shipping_date: Joi.string().allow(null, "").optional(),
+  actualShippingDate: Joi.string().allow(null, "").optional(),
 
   // Misc
   urgent: Joi.alternatives().try(Joi.boolean(), Joi.string().allow("", null)).optional(),
@@ -190,6 +192,7 @@ const addPaymentSchema = Joi.object({
   method: Joi.string().max(50).allow(null, "").optional(),
   date: Joi.string().allow(null, "").optional(),
   notes: Joi.string().allow(null, "").optional(),
+  receiptUrl: Joi.string().allow("", null).optional(),
 });
 
 // =========================================================================

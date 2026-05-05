@@ -12,6 +12,7 @@ const helmet = require("helmet");
 const morgan = require("morgan");
 const compression = require("compression");
 const cookieParser = require("cookie-parser");
+const path = require("path");
 const env = require("./config/environment");
 
 const app = express();
@@ -49,6 +50,14 @@ app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 // Parse cookies (needed for refresh token)
 app.use(cookieParser());
+
+// ============================================================================
+// STATIC FILE SERVING
+// ============================================================================
+
+// Serve uploaded files (payment receipts, etc.) at /uploads/*
+// Path resolves to <backend-root>/uploads/, same dir multer writes to
+app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
 
 // ============================================================================
 // UTILITY MIDDLEWARE
