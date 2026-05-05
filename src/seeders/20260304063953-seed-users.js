@@ -27,6 +27,7 @@ module.exports = {
           "reports.view", "fabrication.view", "fabrication.create_bom", "fabrication.edit_bom",
           "dyeing.view", "dyeing.accept", "dyeing.start", "dyeing.complete", "dyeing.view_all",
           "production.assign_head", "production.send_to_qa",
+          "shopify.manage",
           "sales.view_approval_queue", "sales.send_to_client", "sales.mark_client_approved",
           "qa.reject", "qa.upload_video", "qa.send_to_sales", "qa.view_sales_requests", "qa.add_video_link",
           "sales.view", "sales.upload_screenshots", "sales.request_revideo", "sales.request_alteration", "sales.cancel_order", "sales.approve_payments", "sales.start_from_scratch",
@@ -40,7 +41,7 @@ module.exports = {
         phone: "+92 300 2234567",
         is_active: true,
         permissions: JSON.stringify([
-          "orders.view", "orders.create", "orders.manage_customer_forms", "orders.approve_customer_forms",
+          "orders.view", "orders.create", "orders.edit", "orders.manage_customer_forms", "orders.approve_customer_forms",
           "inventory.view", "products.view", "sales.view_approval_queue", "sales.send_to_client",
           "sales.mark_client_approved", "sales.view", "sales.upload_screenshots", "sales.request_revideo",
           "sales.request_alteration", "sales.cancel_order", "sales.approve_payments", "sales.start_from_scratch",
@@ -109,7 +110,7 @@ module.exports = {
         phone: "+92 300 8234567",
         is_active: true,
         permissions: JSON.stringify([
-          "orders.view", "orders.create", "orders.manage_customer_forms", "orders.approve_customer_forms",
+          "orders.view", "orders.create", "orders.edit", "orders.manage_customer_forms", "orders.approve_customer_forms",
           "inventory.view", "products.view", "sales.view_approval_queue", "sales.send_to_client",
           "sales.mark_client_approved", "sales.view", "sales.upload_screenshots", "sales.request_revideo",
           "sales.request_alteration", "sales.cancel_order", "sales.approve_payments", "sales.start_from_scratch",
@@ -123,7 +124,7 @@ module.exports = {
         phone: "+92 300 9234567",
         is_active: true,
         permissions: JSON.stringify([
-          "orders.view", "orders.create", "orders.manage_customer_forms", "orders.approve_customer_forms",
+          "orders.view", "orders.create", "orders.edit", "orders.manage_customer_forms", "orders.approve_customer_forms",
           "inventory.view", "products.view", "sales.view_approval_queue", "sales.send_to_client",
           "sales.mark_client_approved", "sales.view", "sales.upload_screenshots", "sales.request_revideo",
           "sales.request_alteration", "sales.cancel_order", "sales.approve_payments", "sales.start_from_scratch",
@@ -137,7 +138,7 @@ module.exports = {
         phone: "+92 300 1034567",
         is_active: true,
         permissions: JSON.stringify([
-          "orders.view", "orders.create", "orders.manage_customer_forms", "orders.approve_customer_forms",
+          "orders.view", "orders.create", "orders.edit", "orders.manage_customer_forms", "orders.approve_customer_forms",
           "inventory.view", "products.view", "sales.view_approval_queue", "sales.send_to_client",
           "sales.mark_client_approved", "sales.view", "sales.upload_screenshots", "sales.request_revideo",
           "sales.request_alteration", "sales.cancel_order", "sales.approve_payments", "sales.start_from_scratch",

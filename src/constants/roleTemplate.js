@@ -30,7 +30,7 @@ const ROLE_TEMPLATES = {
             // Production
             "production.view", "production.manage", "production.assign_tasks",
             "production.approve_packets", "production.assign_head",
-            "production.send_to_qa", "production.start_task", "production.complete_task",
+            "production.send_to_qa",
             // Procurement
             "procurement.view", "procurement.manage",
             // QA
@@ -42,6 +42,8 @@ const ROLE_TEMPLATES = {
             "dyeing.complete", "dyeing.view_all",
             // Dispatch
             "dispatch.view", "dispatch.manage",
+            // Shopify
+            "shopify.manage",
             // Sales Approval
             "sales.view_approval_queue", "sales.send_to_client",
             "sales.mark_client_approved", "sales.request_alteration",
@@ -55,13 +57,14 @@ const ROLE_TEMPLATES = {
     SALES: {
         label: "Sales Representative",
         permissions: [
-            "orders.view", "orders.create", "order.edit",
+            "orders.view", "orders.create", "orders.edit",
             "production.view", "production.manage", "production.assign_tasks", "users.view",
             "orders.manage_customer_forms", "orders.approve_customer_forms",
             "inventory.view", "products.view",
-            "sales.view_approval_queue", "sales.send_to_client",
+            "sales.view", "sales.view_approval_queue", "sales.send_to_client",
             "sales.mark_client_approved", "sales.request_alteration",
             "sales.request_revideo", "sales.cancel_order", "sales.approve_payments",
+            "sales.upload_screenshots", "sales.start_from_scratch",
         ],
     },
 
